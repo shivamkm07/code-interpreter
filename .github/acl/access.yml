@@ -16,3 +16,7 @@ configuration:
     role: Maintain
   - member: sanmeht
     role: Maintain
+  - team: adcontainerapps
+    role: Maintain
+  - team: k4appscore
+    role: Write
