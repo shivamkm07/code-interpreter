@@ -152,6 +152,10 @@ func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata) error
 		return err
 	}
 
+	if err := os.Chmod(dstPath, 0777); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -273,9 +277,9 @@ func main() {
 
 func periodicCodeExecution(apiKey string) {
 
-	time.Sleep(30 * time.Second)
+	time.Sleep(60 * time.Second)
 
-	ticker := time.NewTicker(100 * time.Second)
+	ticker := time.NewTicker(50 * time.Second)
 	defer ticker.Stop()
 
 	sampleCode := "1+1"
@@ -285,7 +289,7 @@ func periodicCodeExecution(apiKey string) {
 			runtimeID, err := getRuntimeID(apiKey, false)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to get runtime ID for code execution")
-				continue
+				panic("Can't get runtime id")
 			}
 
 			err = ExecuteCode(runtimeID, sampleCode)
