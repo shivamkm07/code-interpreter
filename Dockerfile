@@ -15,12 +15,10 @@ COPY . .
 # Build the Go app
 RUN go build -o proxyapp .
 
-# Run Stage
 FROM cappsinttestregistryprivate.azurecr.io/codeexecjupyter:latest
 
 WORKDIR /app
 
-# Copy the binary and entrypoint.sh from the builder stage
 COPY --from=builder /app/proxyapp /app/proxyapp
 
 RUN chmod 777 /app/proxyapp
@@ -28,7 +26,8 @@ COPY sessions_entrypoint.sh /app/sessions_entrypoint.sh
 
 # Ensure the script is executable
 RUN chmod +x /app/sessions_entrypoint.sh
-RUN mkdir -p /mnt/data && chmod -R 777 /mnt/data 
+RUN mkdir -p /mnt/data && chmod 777 /mnt/data
+
 # Use the "exec" form of CMD to ensure that the server
 # becomes PID 1, and thus receives Unix signal notifications,
 # and that a signal proxy isn't spawned
