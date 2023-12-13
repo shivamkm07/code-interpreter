@@ -15,6 +15,8 @@ COPY . .
 # Build the Go app
 RUN go build -o acamanager .
 
+FROM cappsinttestregistryprivate.azurecr.io/codeexecjupyter:latest
+
 WORKDIR /app
 
 COPY --from=builder /app/acamanager /app/acamanager
