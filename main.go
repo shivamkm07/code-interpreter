@@ -21,6 +21,10 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var (
+	computeResourceKey = ""
+)
+
 const (
 	ErrCodeParseForm         = "ERR_PARSE_FORM"
 	ErrCodeFileOpen          = "ERR_FILE_OPEN"
@@ -35,7 +39,6 @@ const (
 	maxRetries               = 5
 	initialRetryDelay        = 2 * time.Second
 	apiEndpointFormat        = "http://localhost:80/api/runtimes/%s/%s"
-	apiKey                   = "/computeresourcekey123"
 	executeEndpoint          = "http://127.0.0.1:80/api/runtimes/%v/execute"
 )
 
@@ -185,7 +188,7 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
-	runtimeID, err := getRuntimeID(apiKey, false)
+	runtimeID, err := getRuntimeID(computeResourceKey, false)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get runtime ID")
 		http.Error(w, "Failed to get runtime ID", http.StatusInternalServerError)
@@ -209,6 +212,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	proxy.Director = func(req *http.Request) {
 		req.URL = proxyURL
+		req.Header.Add("Authorization", "APIKey "+computeResourceKey)
 		req.Host = proxyURL.Host
 		log.Info().Str("URL", req.URL.String()).Msg("Proxying request")
 	}
@@ -228,7 +232,7 @@ func ExecuteCode(runtimeId string, code string) error {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Add("Authorization", "APIKey "+apiKey)
+	req.Header.Add("Authorization", "APIKey "+computeResourceKey)
 	req.Header.Add("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -257,8 +261,15 @@ func ExecuteCode(runtimeId string, code string) error {
 func main() {
 	log.Info().Msg("Application starting up")
 
-	apiKey := "/computeresourcekey123"
+	computeResourceKey = os.Getenv("OfficePy__ComputeResourceKey")
 
+	if computeResourceKey == "" {
+		computeResourceKey = "/acasessions"
+	} else {
+		computeResourceKey = "/" + computeResourceKey
+	}
+
+	log.Info().Str("Compute Resource Key", computeResourceKey).Msg("Logging compute resource key")
 	lastCodeHealthCheck = true
 
 	router := mux.NewRouter()
@@ -269,7 +280,7 @@ func main() {
 	router.HandleFunc("/download/{filename}", downloadFileHandler).Methods("GET")
 	router.PathPrefix("/{path:.*}").HandlerFunc(proxyHandler)
 
-	go periodicCodeExecution(apiKey)
+	go periodicCodeExecution(computeResourceKey)
 
 	log.Info().Msg("Starting server on port :6000")
 	http.ListenAndServe(":6000", router)

@@ -13,16 +13,17 @@ RUN go mod download
 COPY . .
 
 # Build the Go app
-RUN go build -o proxyapp .
+RUN go build -o acamanager .
 
 FROM cappsinttestregistryprivate.azurecr.io/codeexecjupyter:latest
 
 WORKDIR /app
 
-COPY --from=builder /app/proxyapp /app/proxyapp
+COPY --from=builder /app/acamanager /app/acamanager
 
-RUN chmod 777 /app/proxyapp
+RUN chmod +x /app/acamanager
 COPY sessions_entrypoint.sh /app/sessions_entrypoint.sh
+
 
 # Ensure the script is executable
 RUN chmod +x /app/sessions_entrypoint.sh
