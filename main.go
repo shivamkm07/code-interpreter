@@ -194,13 +194,12 @@ func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	err := os.Remove(filePath)
 	if err != nil {
-		log.Error().Err(err).Msg("Error deleting file")
+		log.Error().Err(err).Msg(fmt.Sprintf("Error deleting file %s", filename))
 		http.Error(w, "Error deleting file", http.StatusInternalServerError)
 		return
 	}
 
 	log.Info().Msg(fmt.Sprintf("File %s deleted successfully.\n", filename))
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 }
 
