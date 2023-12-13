@@ -40,6 +40,7 @@ const (
 	initialRetryDelay        = 2 * time.Second
 	apiEndpointFormat        = "http://localhost:80/api/runtimes/%s/%s"
 	executeEndpoint          = "http://127.0.0.1:80/api/runtimes/%v/execute"
+	dirPath                  = "/mnt/data"
 )
 
 type AcaPoolPythonRuntimesResponse struct {
@@ -122,6 +123,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Info().Msg("Upload files successfully.\n")
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(response)
 }
@@ -134,7 +136,7 @@ func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata) error
 	}
 	defer src.Close()
 
-	dstPath := filepath.Join("/mnt/data", filepath.Base(file.Filename))
+	dstPath := filepath.Join(dirPath, filepath.Base(file.Filename))
 	dst, err := os.Create(dstPath)
 	if err != nil {
 		return err
@@ -165,8 +167,7 @@ func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata) error
 func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	filename := filepath.Base(vars["filename"])
-
-	filePath := filepath.Join("/mnt/data", filename)
+	filePath := filepath.Join(dirPath, filename)
 
 	fileInfo, err := os.Lstat(filePath)
 	if err != nil {
@@ -177,14 +178,115 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+
 	if fileInfo.Mode()&os.ModeSymlink != 0 {
 		logAndRespond(w, http.StatusBadRequest, ErrCodeSymlinkNotAllowed, "Symlinks not allowed")
 		return
 	}
 
 	http.ServeFile(w, r, filePath)
+}
 
-	http.ServeFile(w, r, filePath)
+func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	filename := filepath.Base(vars["filename"])
+	filePath := filepath.Join(dirPath, filename)
+
+	err := os.Remove(filePath)
+	if err != nil {
+		log.Error().Err(err).Msg("Error deleting file")
+		http.Error(w, "Error deleting file", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().Msg(fmt.Sprintf("File %s deleted successfully.\n", filename))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+}
+
+func getFileHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	filename := filepath.Base(vars["filename"])
+	filePath := filepath.Join(dirPath, filename)
+
+	// Retrieve file information using os.Stat
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		// If there is an error, send an error response
+		log.Error().Err(err).Str("file", filename).Msg("Unable to get file info")
+		http.Error(w, fmt.Sprintf("Error getting file information: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	mimeType := mime.TypeByExtension(filepath.Ext(filename))
+	if mimeType == "" {
+		mimeType = "application/octet-stream" // default MIME type
+	}
+
+	fileMetadata := FileMetadata{
+		Filename:    filename,
+		Size:        fileInfo.Size(),
+		LastModTime: fileInfo.ModTime(),
+		MIMEType:    mimeType,
+	}
+
+	response, err := json.Marshal(fileMetadata)
+	if err != nil {
+		log.Error().Err(err).Msg("Unable to marshal response")
+		http.Error(w, "Unable to marshal response", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().Msg(fmt.Sprintf("Get file %s successfully.\n", filename))
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(response)
+}
+
+func listFilesHandler(w http.ResponseWriter, r *http.Request) {
+	files, err := os.ReadDir(dirPath)
+	if err != nil {
+		log.Error().Err(err).Msg("Unable to read directory")
+		http.Error(w, "Unable to read directory", http.StatusInternalServerError)
+		return
+	}
+
+	var metadataList []FileMetadata
+	for _, f := range files {
+		// Ignore if it is a symlink
+		if f.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+
+		fullPath := filepath.Join(dirPath, f.Name())
+		fileInfo, err := os.Stat(fullPath)
+		if err != nil {
+			log.Error().Err(err).Str("file", f.Name()).Msg("Unable to get file info")
+			continue
+		}
+
+		mimeType := mime.TypeByExtension(filepath.Ext(f.Name()))
+		if mimeType == "" {
+			mimeType = "application/octet-stream" // default MIME type
+		}
+
+		metadataList = append(metadataList, FileMetadata{
+			Filename:    f.Name(),
+			Size:        fileInfo.Size(),
+			LastModTime: fileInfo.ModTime(),
+			MIMEType:    mimeType,
+		})
+	}
+
+	response, err := json.Marshal(metadataList)
+	if err != nil {
+		log.Error().Err(err).Msg("Unable to marshal response")
+		http.Error(w, "Unable to marshal response", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().Msg("List files successfully.\n")
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(response)
 }
 
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
@@ -258,38 +360,8 @@ func ExecuteCode(runtimeId string, code string) error {
 	return nil
 }
 
-func main() {
-	log.Info().Msg("Application starting up")
-
-	computeResourceKey = os.Getenv("OfficePy__ComputeResourceKey")
-
-	if computeResourceKey == "" {
-		computeResourceKey = "/acasessions"
-	} else {
-		computeResourceKey = "/" + computeResourceKey
-	}
-
-	log.Info().Str("Compute Resource Key", computeResourceKey).Msg("Logging compute resource key")
-	lastCodeHealthCheck = true
-
-	router := mux.NewRouter()
-
-	router.HandleFunc("/healthz", healthHandler).Methods("GET")
-	router.HandleFunc("/listfiles", listFilesHandler).Methods("GET")
-	router.HandleFunc("/upload", uploadFileHandler).Methods("POST")
-	router.HandleFunc("/download/{filename}", downloadFileHandler).Methods("GET")
-	router.PathPrefix("/{path:.*}").HandlerFunc(proxyHandler)
-
-	go periodicCodeExecution(computeResourceKey)
-
-	log.Info().Msg("Starting server on port :6000")
-	http.ListenAndServe(":6000", router)
-}
-
 func periodicCodeExecution(apiKey string) {
-
 	time.Sleep(60 * time.Second)
-
 	ticker := time.NewTicker(50 * time.Second)
 	defer ticker.Stop()
 
@@ -313,53 +385,6 @@ func periodicCodeExecution(apiKey string) {
 			}
 		}
 	}
-}
-
-func listFilesHandler(w http.ResponseWriter, r *http.Request) {
-	dirPath := "/mnt/data"
-	files, err := os.ReadDir(dirPath)
-	if err != nil {
-		log.Error().Err(err).Msg("Unable to read directory")
-		http.Error(w, "Unable to read directory", http.StatusInternalServerError)
-		return
-	}
-
-	var metadataList []FileMetadata
-	for _, f := range files {
-		// Ignore if it is a symlink
-		if f.Type()&os.ModeSymlink != 0 {
-			continue
-		}
-
-		fullPath := filepath.Join(dirPath, f.Name())
-		fileInfo, err := os.Stat(fullPath)
-		if err != nil {
-			log.Error().Err(err).Str("file", f.Name()).Msg("Unable to get file info")
-			continue
-		}
-
-		mimeType := mime.TypeByExtension(filepath.Ext(f.Name()))
-		if mimeType == "" {
-			mimeType = "application/octet-stream" // default MIME type
-		}
-
-		metadataList = append(metadataList, FileMetadata{
-			Filename:    f.Name(),
-			Size:        fileInfo.Size(),
-			LastModTime: fileInfo.ModTime(),
-			MIMEType:    mimeType,
-		})
-	}
-
-	response, err := json.Marshal(metadataList)
-	if err != nil {
-		log.Error().Err(err).Msg("Unable to marshal response")
-		http.Error(w, "Unable to marshal response", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(response)
 }
 
 func getRuntimeID(apiKey string, forceRefresh bool) (string, error) {
@@ -461,4 +486,34 @@ func createRuntime(apiKey string, client *http.Client) (string, error) {
 func logAndRespond(w http.ResponseWriter, statusCode int, errCode, errMsg string) {
 	log.Error().Str("error_code", errCode).Msg(errMsg)
 	http.Error(w, fmt.Sprintf("%s: %s", errCode, errMsg), statusCode)
+}
+
+func main() {
+	log.Info().Msg("Application starting up")
+
+	computeResourceKey = os.Getenv("OfficePy__ComputeResourceKey")
+
+	if computeResourceKey == "" {
+		computeResourceKey = "/acasessions"
+	} else {
+		computeResourceKey = "/" + computeResourceKey
+	}
+
+	log.Info().Str("Compute Resource Key", computeResourceKey).Msg("Logging compute resource key")
+	lastCodeHealthCheck = true
+
+	router := mux.NewRouter()
+
+	router.HandleFunc("/healthz", healthHandler).Methods("GET")
+	router.HandleFunc("/listfiles", listFilesHandler).Methods("GET")
+	router.HandleFunc("/upload", uploadFileHandler).Methods("POST")
+	router.HandleFunc("/download/{filename}", downloadFileHandler).Methods("GET")
+	router.HandleFunc("/delete/{filename}", deleteFileHandler).Methods("DELETE")
+	router.HandleFunc("/get/{filename}", getFileHandler).Methods("GET")
+	router.PathPrefix("/{path:.*}").HandlerFunc(proxyHandler)
+
+	go periodicCodeExecution(computeResourceKey)
+
+	log.Info().Msg("Starting server on port :6000")
+	http.ListenAndServe(":6000", router)
 }
