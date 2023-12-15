@@ -95,7 +95,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseMultipartForm(10 << 20) // 10MB limit
+	err := r.ParseMultipartForm(250 << 20) // 250MB limit
 	if err != nil {
 		log.Error().Err(err).Msg("Unable to parse form")
 		http.Error(w, "Unable to parse form", http.StatusBadRequest)
