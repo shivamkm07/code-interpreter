@@ -221,6 +221,18 @@ func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
 	filename := filepath.Base(decodedFilename)
 	filePath := filepath.Join(dirPath, filename)
 
+	// Check if the file exists
+	_, err = os.Lstat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logAndRespond(w, http.StatusNotFound, ErrCodeFileNotFound, "File not found")
+		} else {
+			logAndRespond(w, http.StatusInternalServerError, ErrCodeFileAccess, "Error accessing file")
+		}
+		return
+	}
+
+	// File exists, proceed with deletion
 	err = os.Remove(filePath)
 	if err != nil {
 		log.Error().Err(err).Msg(fmt.Sprintf("Error deleting file %s", filename))
@@ -249,12 +261,15 @@ func getFileHandler(w http.ResponseWriter, r *http.Request) {
 	filename := filepath.Base(decodedFilename)
 	filePath := filepath.Join(dirPath, filename)
 
-	// Retrieve file information using os.Stat
-	fileInfo, err := os.Stat(filePath)
+	// if file exists, retrieve file information using os.Stat
+	fileInfo, err := os.Lstat(filePath)
+	// handle not found or other errors
 	if err != nil {
-		// If there is an error, send an error response
-		log.Error().Err(err).Str("file", filename).Msg("Unable to get file info")
-		http.Error(w, fmt.Sprintf("Error getting file information: %v", err), http.StatusInternalServerError)
+		if os.IsNotExist(err) {
+			logAndRespond(w, http.StatusNotFound, ErrCodeFileNotFound, "File not found")
+		} else {
+			logAndRespond(w, http.StatusInternalServerError, ErrCodeFileAccess, "Error accessing file")
+		}
 		return
 	}
 
