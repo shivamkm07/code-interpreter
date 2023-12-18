@@ -136,6 +136,13 @@ func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata) error
 	}
 	defer src.Close()
 
+	// url decode filename
+	decodedFilename, err := url.QueryUnescape(file.Filename)
+	if err != nil {
+		log.Error().Err(err).Str("filename", file.Filename).Msg("Error decoding file name")
+	}
+	file.Filename = decodedFilename
+
 	dstPath := filepath.Join(dirPath, filepath.Base(file.Filename))
 	dst, err := os.Create(dstPath)
 	if err != nil {
@@ -165,8 +172,19 @@ func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata) error
 }
 
 func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	filename := filepath.Base(vars["filename"])
+    vars := mux.Vars(r)
+	encodedFilename := vars["filename"]
+
+	// URL decode the filename
+	decodedFilename, err := url.QueryUnescape(encodedFilename)
+	if err != nil {
+		log.Error().Err(err).Msg("Error decoding file name")
+		http.Error(w, "Error decoding file name", http.StatusBadRequest)
+		return
+	}
+
+	// Use the decoded filename for further processing
+	filename := filepath.Base(decodedFilename)
 	filePath := filepath.Join(dirPath, filename)
 
 	fileInfo, err := os.Lstat(filePath)
@@ -189,10 +207,21 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	filename := filepath.Base(vars["filename"])
+	encodedFilename := vars["filename"]
+
+	// URL decode the filename
+	decodedFilename, err := url.QueryUnescape(encodedFilename)
+	if err != nil {
+		log.Error().Err(err).Msg("Error decoding file name")
+		http.Error(w, "Error decoding file name", http.StatusBadRequest)
+		return
+	}
+
+	// Use the decoded filename in further processing
+	filename := filepath.Base(decodedFilename)
 	filePath := filepath.Join(dirPath, filename)
 
-	err := os.Remove(filePath)
+	err = os.Remove(filePath)
 	if err != nil {
 		log.Error().Err(err).Msg(fmt.Sprintf("Error deleting file %s", filename))
 		http.Error(w, "Error deleting file", http.StatusInternalServerError)
@@ -201,11 +230,23 @@ func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Info().Msg(fmt.Sprintf("File %s deleted successfully.\n", filename))
 	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, "ok")
 }
 
 func getFileHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	filename := filepath.Base(vars["filename"])
+	encodedFilename := vars["filename"]
+
+	// URL decode the filename
+	decodedFilename, err := url.QueryUnescape(encodedFilename)
+	if err != nil {
+		log.Error().Err(err).Msg("Error decoding file name")
+		http.Error(w, "Error decoding file name", http.StatusBadRequest)
+		return
+	}
+
+	// Use the decoded filename in further processing
+	filename := filepath.Base(decodedFilename)
 	filePath := filepath.Join(dirPath, filename)
 
 	// Retrieve file information using os.Stat
