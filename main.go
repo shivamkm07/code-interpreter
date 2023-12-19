@@ -99,6 +99,10 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
+	// get custom path from URL
+	vars := mux.Vars(r)
+	customPath := vars["path"]
+
 	err := r.ParseMultipartForm(250 << 20) // 250MB limit
 	if err != nil {
 		log.Error().Err(err).Msg("Unable to parse form")
@@ -110,7 +114,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	var metadataList []FileMetadata
 
 	for _, file := range files {
-		if err := processFile(file, &metadataList); err != nil {
+		if err := processFile(file, &metadataList, customPath); err != nil {
 			log.Error().Err(err).Str("filename", file.Filename).Send()
 			// choose to continue?
 		}
@@ -129,7 +133,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // processFile handles the processing of each individual file and updates the metadata list.
-func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata) error {
+func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata, customPath string) error {
 	src, err := file.Open()
 	if err != nil {
 		return err
@@ -143,7 +147,11 @@ func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata) error
 	}
 	file.Filename = decodedFilename
 
-	dstPath := filepath.Join(dirPath, filepath.Base(file.Filename))
+	customDirPath := filepath.Join(dirPath, customPath)
+	// create the directory if it doesn't exist
+	os.MkdirAll(customDirPath, os.ModePerm)
+
+	dstPath := filepath.Join(customDirPath, filepath.Base(file.Filename))
 	dst, err := os.Create(dstPath)
 	if err != nil {
 		return err
@@ -172,7 +180,8 @@ func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata) error
 }
 
 func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
-    vars := mux.Vars(r)
+	vars := mux.Vars(r)
+	customPath := vars["path"]
 	encodedFilename := vars["filename"]
 
 	// URL decode the filename
@@ -185,7 +194,7 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Use the decoded filename for further processing
 	filename := filepath.Base(decodedFilename)
-	filePath := filepath.Join(dirPath, filename)
+	filePath := filepath.Join(dirPath, customPath, filename)
 
 	fileInfo, err := os.Lstat(filePath)
 	if err != nil {
@@ -298,7 +307,11 @@ func getFileHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
-	files, err := os.ReadDir(dirPath)
+	vars := mux.Vars(r)
+	customPath := vars["path"]
+	customDirPath := filepath.Join(dirPath, customPath)
+
+	files, err := os.ReadDir(customDirPath)
 	if err != nil {
 		log.Error().Err(err).Msg("Unable to read directory")
 		http.Error(w, "Unable to read directory", http.StatusInternalServerError)
@@ -312,7 +325,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		fullPath := filepath.Join(dirPath, f.Name())
+		fullPath := filepath.Join(customDirPath, f.Name())
 		fileInfo, err := os.Stat(fullPath)
 		if err != nil {
 			log.Error().Err(err).Str("file", f.Name()).Msg("Unable to get file info")
@@ -560,9 +573,9 @@ func main() {
 	router := mux.NewRouter()
 
 	router.HandleFunc("/healthz", healthHandler).Methods("GET")
-	router.HandleFunc("/listfiles", listFilesHandler).Methods("GET")
-	router.HandleFunc("/upload", uploadFileHandler).Methods("POST")
-	router.HandleFunc("/download/{filename}", downloadFileHandler).Methods("GET")
+	router.HandleFunc("/listfiles/{path:.*}", listFilesHandler).Methods("GET")
+	router.HandleFunc("/upload/{path:.*}", uploadFileHandler).Methods("POST")
+	router.HandleFunc("/download/{path:.*}/{filename}", downloadFileHandler).Methods("GET")
 	router.HandleFunc("/delete/{filename}", deleteFileHandler).Methods("DELETE")
 	router.HandleFunc("/get/{filename}", getFileHandler).Methods("GET")
 	router.PathPrefix("/{path:.*}").HandlerFunc(proxyHandler)
