@@ -41,6 +41,8 @@ const (
 	apiEndpointFormat        = "http://localhost:80/api/runtimes/%s/%s"
 	executeEndpoint          = "http://127.0.0.1:80/api/runtimes/%v/execute"
 	dirPath                  = "/mnt/data"
+	fileType                 = "file"
+	dirType                  = "directory"
 )
 
 type AcaPoolPythonRuntimesResponse struct {
@@ -53,10 +55,12 @@ type AcaPoolPythonRuntimeResponse struct {
 }
 
 type FileMetadata struct {
-	Filename    string    `json:"filename"`
+	Name        string    `json:"name"`
+	Type        string    `json:"type"`
+	Filename    string    `json:"filename"` // remove this after CP change since we have name
 	Size        int64     `json:"size"`
 	LastModTime time.Time `json:"last_modified_time"`
-	MIMEType    string    `json:"mime_type"`
+	MIMEType    string    `json:"mime_type"` // remove this after CP change since we have type
 }
 
 type PythonRuntimesResponse struct {
@@ -99,6 +103,17 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
+	// get custom path from URL
+	vars := mux.Vars(r)
+	targetPath := dirPath
+
+	// supports both uploadFile and uploadFile/{path}
+	if customPath, ok := vars["path"]; ok && customPath != "" {
+		// clean the path to prevent directory traversal attacks
+		customPath = filepath.Clean("/" + customPath)
+		targetPath = filepath.Join(dirPath, customPath)
+	}
+
 	err := r.ParseMultipartForm(250 << 20) // 250MB limit
 	if err != nil {
 		log.Error().Err(err).Msg("Unable to parse form")
@@ -110,7 +125,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	var metadataList []FileMetadata
 
 	for _, file := range files {
-		if err := processFile(file, &metadataList); err != nil {
+		if err := processFile(file, &metadataList, targetPath); err != nil {
 			log.Error().Err(err).Str("filename", file.Filename).Send()
 			// choose to continue?
 		}
@@ -129,7 +144,7 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // processFile handles the processing of each individual file and updates the metadata list.
-func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata) error {
+func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata, path string) error {
 	src, err := file.Open()
 	if err != nil {
 		return err
@@ -143,7 +158,10 @@ func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata) error
 	}
 	file.Filename = decodedFilename
 
-	dstPath := filepath.Join(dirPath, filepath.Base(file.Filename))
+	// create the directory if it doesn't exist
+	os.MkdirAll(path, os.ModePerm)
+
+	dstPath := filepath.Join(path, filepath.Base(file.Filename))
 	dst, err := os.Create(dstPath)
 	if err != nil {
 		return err
@@ -172,7 +190,7 @@ func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata) error
 }
 
 func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
-    vars := mux.Vars(r)
+	vars := mux.Vars(r)
 	encodedFilename := vars["filename"]
 
 	// URL decode the filename
@@ -185,7 +203,16 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Use the decoded filename for further processing
 	filename := filepath.Base(decodedFilename)
-	filePath := filepath.Join(dirPath, filename)
+
+	targetPath := dirPath
+	// supports both dowloadFile and dowloadFile/{path}/{fileName}
+	if customPath, ok := vars["path"]; ok && customPath != "" {
+		// clean the path to prevent directory traversal attacks
+		customPath = filepath.Clean("/" + customPath)
+		targetPath = filepath.Join(dirPath, customPath)
+	}
+
+	filePath := filepath.Join(targetPath, filename)
 
 	fileInfo, err := os.Lstat(filePath)
 	if err != nil {
@@ -298,7 +325,17 @@ func getFileHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func listFilesHandler(w http.ResponseWriter, r *http.Request) {
-	files, err := os.ReadDir(dirPath)
+	vars := mux.Vars(r)
+	targetPath := dirPath
+
+	// supports both listFiles and listFiles/{path}
+	if customPath, ok := vars["path"]; ok && customPath != "" {
+		// clean the path to prevent directory traversal attacks
+		customPath = filepath.Clean("/" + customPath)
+		targetPath = filepath.Join(dirPath, customPath)
+	}
+
+	files, err := os.ReadDir(targetPath)
 	if err != nil {
 		log.Error().Err(err).Msg("Unable to read directory")
 		http.Error(w, "Unable to read directory", http.StatusInternalServerError)
@@ -312,7 +349,7 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		fullPath := filepath.Join(dirPath, f.Name())
+		fullPath := filepath.Join(targetPath, f.Name())
 		fileInfo, err := os.Stat(fullPath)
 		if err != nil {
 			log.Error().Err(err).Str("file", f.Name()).Msg("Unable to get file info")
@@ -324,12 +361,25 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 			mimeType = "application/octet-stream" // default MIME type
 		}
 
-		metadataList = append(metadataList, FileMetadata{
-			Filename:    f.Name(),
-			Size:        fileInfo.Size(),
-			LastModTime: fileInfo.ModTime(),
-			MIMEType:    mimeType,
-		})
+		if fileInfo.IsDir() {
+			metadataList = append(metadataList, FileMetadata{
+				Name:        f.Name(),
+				Type:        dirType,
+				Filename:    f.Name(), // remove this after CP change since we have Name
+				Size:        fileInfo.Size(),
+				LastModTime: fileInfo.ModTime(),
+				MIMEType:    mimeType, // remove this after CP change since we have type
+			})
+		} else {
+			metadataList = append(metadataList, FileMetadata{
+				Name:        f.Name(),
+				Type:        fileType,
+				Filename:    f.Name(), // remove this after CP change since we have Name
+				Size:        fileInfo.Size(),
+				LastModTime: fileInfo.ModTime(),
+				MIMEType:    mimeType, // remove this after CP change since we have type
+			})
+		}
 	}
 
 	response, err := json.Marshal(metadataList)
@@ -561,8 +611,11 @@ func main() {
 
 	router.HandleFunc("/healthz", healthHandler).Methods("GET")
 	router.HandleFunc("/listfiles", listFilesHandler).Methods("GET")
+	router.HandleFunc("/listfiles/{path:.*}", listFilesHandler).Methods("GET")
 	router.HandleFunc("/upload", uploadFileHandler).Methods("POST")
+	router.HandleFunc("/upload/{path:.*}", uploadFileHandler).Methods("POST")
 	router.HandleFunc("/download/{filename}", downloadFileHandler).Methods("GET")
+	router.HandleFunc("/download/{path:.*}/{filename}", downloadFileHandler).Methods("GET")
 	router.HandleFunc("/delete/{filename}", deleteFileHandler).Methods("DELETE")
 	router.HandleFunc("/get/{filename}", getFileHandler).Methods("GET")
 	router.PathPrefix("/{path:.*}").HandlerFunc(proxyHandler)
