@@ -419,7 +419,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	proxy.Director = func(req *http.Request) {
 		req.URL = proxyURL
-		req.Header.Add("Authorization", "APIKey "+computeResourceKey)
+		req.Header.Set("Authorization", "apikey "+computeResourceKey)
 		req.Host = proxyURL.Host
 		log.Info().Str("URL", req.URL.String()).Msg("Proxying request")
 	}
