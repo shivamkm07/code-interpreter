@@ -21,9 +21,25 @@ WORKDIR /app
 
 COPY --from=builder /app/acamanager /app/acamanager
 
+RUN tdnf makecache && tdnf install -y \
+    pkg-config \
+    cairo-devel \
+    python3-devel \
+    gcc \
+    glibc-devel \
+    kernel-headers \
+    binutils \
+    dbus-devel \
+    awk \
+    autoconf
+
 RUN chmod +x /app/acamanager
 COPY sessions_entrypoint.sh /app/sessions_entrypoint.sh
+COPY requirements.txt /app/requirements.txt
 
+# Install Python packages
+RUN python -m ensurepip
+RUN pip install -r /app/requirements.txt
 
 # Ensure the script is executable
 RUN chmod +x /app/sessions_entrypoint.sh
