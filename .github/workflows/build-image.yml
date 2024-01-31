@@ -1,0 +1,30 @@
+name: build-jupyter-python
+on:
+  workflow_dispatch: { }
+  push:
+    branches:
+      - main
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Login to Docker Hub
+        env:
+          JP_ACR_PASSWORD: ${{ secrets.JP_ACR_PASSWORD }}
+          JP_ACR_USERNAME: ${{ secrets.JP_ACR_USERNAME }}
+        run: echo $JP_ACR_PASSWORD | docker login -u $JP_ACR_USERNAME --password-stdin cappsinttestregistrypublic.azurecr.io
+
+      - name: Build and publish Tools image
+        run: |
+          export TIMESTAMP=$(date +"%H%d%m%Y")
+          export JUPYTERPYTHON_IMAGE="cappsinttestregistrypublic.azurecr.io/jupyterpython:7758-$TIMESTAMP"
+          docker build -f Dockerfile -t $JUPYTERPYTHON_IMAGE .
+          docker push $JUPYTERPYTHON_IMAGE
+
