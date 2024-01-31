@@ -15,13 +15,19 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Login to Docker Hub
+      - name: Login to Anonymous ACR
         env:
           JP_ACR_PASSWORD: ${{ secrets.JP_ACR_PASSWORD }}
           JP_ACR_USERNAME: ${{ secrets.JP_ACR_USERNAME }}
         run: echo $JP_ACR_PASSWORD | docker login -u $JP_ACR_USERNAME --password-stdin cappsinttestregistrypublic.azurecr.io
 
-      - name: Build and publish Tools image
+      - name: Login to Private ACR
+        env:
+          JP_ACR_PASSWORD: ${{ secrets.JP_PRIVATE_ACR_PASSWORD }}
+          JP_ACR_USERNAME: ${{ secrets.JP_PRIVATE_ACR_USERNAME }}
+        run: echo $JP_ACR_PASSWORD | docker login -u $JP_ACR_USERNAME --password-stdin cappsinttestregistryprivate.azurecr.io
+
+      - name: Build and publish Jupyter Python Image
         run: |
           export TIMESTAMP=$(date +"%H%d%m%Y")
           export JUPYTERPYTHON_IMAGE="cappsinttestregistrypublic.azurecr.io/jupyterpython:7758-$TIMESTAMP"
