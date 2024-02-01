@@ -56,7 +56,7 @@ type ExecuteRequest struct {
 const jupyterURL = "http://localhost:8888"
 const timeout = 60 * time.Second
 
-var token = ""
+var token = "test"
 
 // JupyterMessage represents a Jupyter message structure.
 type JupyterMessage struct {
@@ -85,7 +85,8 @@ func main() {
 func getToken() string {
 	token = os.Getenv("JUPYTER_TOKEN")
 	if token == "" {
-		log.Fatal("JUPYTER_TOKEN environment variable not set")
+		token = "test"
+		log.Println("Token not found in the environment variable. Using default token:", token)
 	}
 	return token
 }
@@ -95,6 +96,11 @@ func initializeJupyter(w http.ResponseWriter, r *http.Request) {
 	// get token from the environment variable
 	token = getToken()
 	checkKernels("")
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"message": "Jupyter initialized with token, ` + token + `."}`))
+
 }
 
 // check if there are any available kernels running and if so create a new session

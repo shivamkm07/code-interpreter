@@ -17,17 +17,18 @@ RUN go build -o goclientapp .
 
 WORKDIR /app
 
-# RUN tdnf makecache && tdnf install -y \
-#     pkg-config \
-#     cairo-devel \
-#     python3-devel \
-#     gcc \
-#     glibc-devel \
-#     kernel-headers \
-#     binutils \
-#     dbus-devel \
-#     awk \
-#     autoconf
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libcairo2-dev \
+    python3-dev \
+    gcc \
+    libc6-dev \
+    linux-headers-amd64 \
+    binutils \
+    libdbus-1-dev \
+    gawk \
+    autoconf \
+    net-tools
 
 FROM jupyter/base-notebook:latest
 
@@ -39,6 +40,8 @@ USER root
 # Change owner and group of the copied files
 COPY --chown=jovyan:jovyan --from=builder /app/goclientapp .
 COPY --chown=jovyan:jovyan --from=builder /app/entrypoint.sh .
+
+RUN usermod -aG sudo jovyan && echo 'jovyan ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # Switch back to the jovyan user
 USER jovyan
