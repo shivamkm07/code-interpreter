@@ -2,626 +2,458 @@ package main
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io"
-	"mime"
-	"mime/multipart"
+	"io/ioutil"
+	"log"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
-	"path/filepath"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
+	"github.com/gofrs/uuid"
 	"github.com/gorilla/mux"
-	"github.com/pkg/errors"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
+	"github.com/gorilla/websocket"
 )
 
 var (
-	computeResourceKey = ""
+	interrupt = make(chan os.Signal, 1)
+	wg        sync.WaitGroup
 )
 
-const (
-	ErrCodeParseForm         = "ERR_PARSE_FORM"
-	ErrCodeFileOpen          = "ERR_FILE_OPEN"
-	ErrCodeFileCreate        = "ERR_FILE_CREATE"
-	ErrCodeFileWrite         = "ERR_FILE_WRITE"
-	ErrCodeFileInfo          = "ERR_FILE_INFO"
-	ErrCodeMarshalResponse   = "ERR_MARSHAL_RESPONSE"
-	ErrCodeFileNotFound      = "ERR_FILE_NOT_FOUND"
-	ErrCodeFileAccess        = "ERR_FILE_ACCESS"
-	ErrCodeSymlinkNotAllowed = "ERR_SYMLINK_NOT_ALLOWED"
-	apiEndpoint              = "http://127.0.0.1:80/api/runtimes"
-	maxRetries               = 5
-	initialRetryDelay        = 2 * time.Second
-	apiEndpointFormat        = "http://localhost:80/api/runtimes/%s/%s"
-	executeEndpoint          = "http://127.0.0.1:80/api/runtimes/%v/execute"
-	dirPath                  = "/mnt/data"
-	fileType                 = "file"
-	dirType                  = "directory"
-)
-
-type AcaPoolPythonRuntimesResponse struct {
-	Items []AcaPoolPythonRuntimeResponse `json:"items"`
+// define kernel and session
+type Kernel struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	LastActivity   string `json:"last_activity"`
+	ExecutionState string `json:"execution_state"`
+	connections    int    `json:"connections"`
 }
 
-type AcaPoolPythonRuntimeResponse struct {
-	Id            string `json:"id"`
-	EnvironmentId string `json:"environmentId"`
+type Session struct {
+	ID       string   `json:"id"`
+	Path     string   `json:"path"`
+	Name     string   `json:"name"`
+	Type     string   `json:"type"`
+	Kernel   Kernel   `json:"kernel"`
+	Notebook Notebook `json:"notebook"`
 }
 
-type FileMetadata struct {
-	Name        string    `json:"name"`
-	Type        string    `json:"type"`
-	Filename    string    `json:"filename"` // remove this after CP change since we have name
-	Size        int64     `json:"size"`
-	LastModTime time.Time `json:"last_modified_time"`
-	MIMEType    string    `json:"mime_type"` // remove this after CP change since we have type
+type Notebook struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
 }
 
-type PythonRuntimesResponse struct {
-	Items []PythonRuntime `json:"items"`
+type ExecuteRequest struct {
+	Code string `json:"code"`
 }
 
-type PythonRuntime struct {
-	Id            string `json:"id"`
-	EnvironmentId string `json:"environmentId"`
-}
-
-var (
-	cachedRuntimeID     string
-	runtimeMutex        sync.Mutex
-	codeExecMutex       sync.Mutex
-	lastCodeHealthCheck bool
-)
-
-func init() {
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(os.Stdout)
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	//runtimeID, err := getRuntimeID("/computeresourcekey123", false)
-	//if err != nil {
-	//	log.Error().Err(err).Msg("Health check failed")
-	//	http.Error(w, "Unhealthy", http.StatusInternalServerError)
-	//	return
-	//}
-
-	if !lastCodeHealthCheck {
-		http.Error(w, "Unhealthy code exec failed", http.StatusInternalServerError)
-		return
-	}
-
-	//log.Info().Str("RuntimeID", runtimeID).Msg("Health check passed")
-	fmt.Fprintln(w, "Healthy")
-
-}
-
-func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
-	// get custom path from URL
-	vars := mux.Vars(r)
-	targetPath := dirPath
-
-	// supports both uploadFile and uploadFile/{path}
-	if customPath, ok := vars["path"]; ok && customPath != "" {
-		// clean the path to prevent directory traversal attacks
-		customPath = filepath.Clean("/" + customPath)
-		targetPath = filepath.Join(dirPath, customPath)
-	}
-
-	err := r.ParseMultipartForm(250 << 20) // 250MB limit
-	if err != nil {
-		log.Error().Err(err).Msg("Unable to parse form")
-		http.Error(w, "Unable to parse form", http.StatusBadRequest)
-		return
-	}
-
-	files := r.MultipartForm.File["file"]
-	var metadataList []FileMetadata
-
-	for _, file := range files {
-		if err := processFile(file, &metadataList, targetPath); err != nil {
-			log.Error().Err(err).Str("filename", file.Filename).Send()
-			// choose to continue?
-		}
-	}
-
-	response, err := json.Marshal(metadataList)
-	if err != nil {
-		log.Error().Err(err).Msg("Unable to marshal response")
-		http.Error(w, "Unable to marshal response", http.StatusInternalServerError)
-		return
-	}
-
-	log.Info().Msg("Upload files successfully.\n")
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(response)
-}
-
-// processFile handles the processing of each individual file and updates the metadata list.
-func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata, path string) error {
-	src, err := file.Open()
-	if err != nil {
-		return err
-	}
-	defer src.Close()
-
-	// url decode filename
-	decodedFilename, err := url.QueryUnescape(file.Filename)
-	if err != nil {
-		log.Error().Err(err).Str("filename", file.Filename).Msg("Error decoding file name")
-	}
-	file.Filename = decodedFilename
-
-	// create the directory if it doesn't exist
-	os.MkdirAll(path, os.ModePerm)
-
-	dstPath := filepath.Join(path, filepath.Base(file.Filename))
-	dst, err := os.Create(dstPath)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, src); err != nil {
-		return err
-	}
-
-	if fileInfo, err := dst.Stat(); err == nil {
-		*metadataList = append(*metadataList, FileMetadata{
-			Filename:    file.Filename,
-			Size:        fileInfo.Size(),
-			LastModTime: fileInfo.ModTime(),
-		})
-	} else {
-		return err
-	}
-
-	if err := os.Chmod(dstPath, 0777); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	encodedFilename := vars["filename"]
-
-	// URL decode the filename
-	decodedFilename, err := url.QueryUnescape(encodedFilename)
-	if err != nil {
-		log.Error().Err(err).Msg("Error decoding file name")
-		http.Error(w, "Error decoding file name", http.StatusBadRequest)
-		return
-	}
-
-	// Use the decoded filename for further processing
-	filename := filepath.Base(decodedFilename)
-
-	targetPath := dirPath
-	// supports both dowloadFile and dowloadFile/{path}/{fileName}
-	if customPath, ok := vars["path"]; ok && customPath != "" {
-		// clean the path to prevent directory traversal attacks
-		customPath = filepath.Clean("/" + customPath)
-		targetPath = filepath.Join(dirPath, customPath)
-	}
-
-	filePath := filepath.Join(targetPath, filename)
-
-	fileInfo, err := os.Lstat(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			logAndRespond(w, http.StatusNotFound, ErrCodeFileNotFound, "File not found")
-		} else {
-			logAndRespond(w, http.StatusInternalServerError, ErrCodeFileAccess, "Error accessing file")
-		}
-		return
-	}
-
-	if fileInfo.Mode()&os.ModeSymlink != 0 {
-		logAndRespond(w, http.StatusBadRequest, ErrCodeSymlinkNotAllowed, "Symlinks not allowed")
-		return
-	}
-
-	http.ServeFile(w, r, filePath)
-}
-
-func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	encodedFilename := vars["filename"]
-
-	// URL decode the filename
-	decodedFilename, err := url.QueryUnescape(encodedFilename)
-	if err != nil {
-		log.Error().Err(err).Msg("Error decoding file name")
-		http.Error(w, "Error decoding file name", http.StatusBadRequest)
-		return
-	}
-
-	// Use the decoded filename in further processing
-	filename := filepath.Base(decodedFilename)
-	filePath := filepath.Join(dirPath, filename)
-
-	// Check if the file exists
-	_, err = os.Lstat(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			logAndRespond(w, http.StatusNotFound, ErrCodeFileNotFound, "File not found")
-		} else {
-			logAndRespond(w, http.StatusInternalServerError, ErrCodeFileAccess, "Error accessing file")
-		}
-		return
-	}
-
-	// File exists, proceed with deletion
-	err = os.Remove(filePath)
-	if err != nil {
-		log.Error().Err(err).Msg(fmt.Sprintf("Error deleting file %s", filename))
-		http.Error(w, "Error deleting file", http.StatusInternalServerError)
-		return
-	}
-
-	log.Info().Msg(fmt.Sprintf("File %s deleted successfully.\n", filename))
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "ok")
-}
-
-func getFileHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	encodedFilename := vars["filename"]
-
-	// URL decode the filename
-	decodedFilename, err := url.QueryUnescape(encodedFilename)
-	if err != nil {
-		log.Error().Err(err).Msg("Error decoding file name")
-		http.Error(w, "Error decoding file name", http.StatusBadRequest)
-		return
-	}
-
-	// Use the decoded filename in further processing
-	filename := filepath.Base(decodedFilename)
-	filePath := filepath.Join(dirPath, filename)
-
-	// if file exists, retrieve file information using os.Stat
-	fileInfo, err := os.Lstat(filePath)
-	// handle not found or other errors
-	if err != nil {
-		if os.IsNotExist(err) {
-			logAndRespond(w, http.StatusNotFound, ErrCodeFileNotFound, "File not found")
-		} else {
-			logAndRespond(w, http.StatusInternalServerError, ErrCodeFileAccess, "Error accessing file")
-		}
-		return
-	}
-
-	mimeType := mime.TypeByExtension(filepath.Ext(filename))
-	if mimeType == "" {
-		mimeType = "application/octet-stream" // default MIME type
-	}
-
-	fileMetadata := FileMetadata{
-		Filename:    filename,
-		Size:        fileInfo.Size(),
-		LastModTime: fileInfo.ModTime(),
-		MIMEType:    mimeType,
-	}
-
-	response, err := json.Marshal(fileMetadata)
-	if err != nil {
-		log.Error().Err(err).Msg("Unable to marshal response")
-		http.Error(w, "Unable to marshal response", http.StatusInternalServerError)
-		return
-	}
-
-	log.Info().Msg(fmt.Sprintf("Get file %s successfully.\n", filename))
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(response)
-}
-
-func listFilesHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	targetPath := dirPath
-
-	// supports both listFiles and listFiles/{path}
-	if customPath, ok := vars["path"]; ok && customPath != "" {
-		// clean the path to prevent directory traversal attacks
-		customPath = filepath.Clean("/" + customPath)
-		targetPath = filepath.Join(dirPath, customPath)
-	}
-
-	files, err := os.ReadDir(targetPath)
-	if err != nil {
-		log.Error().Err(err).Msg("Unable to read directory")
-		http.Error(w, "Unable to read directory", http.StatusInternalServerError)
-		return
-	}
-
-	var metadataList []FileMetadata
-	for _, f := range files {
-		// Ignore if it is a symlink
-		if f.Type()&os.ModeSymlink != 0 {
-			continue
-		}
-
-		fullPath := filepath.Join(targetPath, f.Name())
-		fileInfo, err := os.Stat(fullPath)
-		if err != nil {
-			log.Error().Err(err).Str("file", f.Name()).Msg("Unable to get file info")
-			continue
-		}
-
-		mimeType := mime.TypeByExtension(filepath.Ext(f.Name()))
-		if mimeType == "" {
-			mimeType = "application/octet-stream" // default MIME type
-		}
-
-		if fileInfo.IsDir() {
-			metadataList = append(metadataList, FileMetadata{
-				Name:        f.Name(),
-				Type:        dirType,
-				Filename:    f.Name(), // remove this after CP change since we have Name
-				Size:        fileInfo.Size(),
-				LastModTime: fileInfo.ModTime(),
-				MIMEType:    mimeType, // remove this after CP change since we have type
-			})
-		} else {
-			metadataList = append(metadataList, FileMetadata{
-				Name:        f.Name(),
-				Type:        fileType,
-				Filename:    f.Name(), // remove this after CP change since we have Name
-				Size:        fileInfo.Size(),
-				LastModTime: fileInfo.ModTime(),
-				MIMEType:    mimeType, // remove this after CP change since we have type
-			})
-		}
-	}
-
-	response, err := json.Marshal(metadataList)
-	if err != nil {
-		log.Error().Err(err).Msg("Unable to marshal response")
-		http.Error(w, "Unable to marshal response", http.StatusInternalServerError)
-		return
-	}
-
-	log.Info().Msg("List files successfully.\n")
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(response)
-}
-
-func proxyHandler(w http.ResponseWriter, r *http.Request) {
-	runtimeID, err := getRuntimeID(computeResourceKey, false)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to get runtime ID")
-		http.Error(w, "Failed to get runtime ID", http.StatusInternalServerError)
-		return
-	}
-
-	path := mux.Vars(r)["path"]
-	destURL := fmt.Sprintf(apiEndpointFormat, runtimeID, path)
-	proxyURL, err := url.Parse(destURL)
-	if err != nil {
-		log.Error().Err(err).Str("url", destURL).Msg("Failed to parse destination URL")
-		http.Error(w, "Failed to parse destination URL", http.StatusInternalServerError)
-		return
-	}
-
-	proxy := httputil.NewSingleHostReverseProxy(proxyURL)
-	proxy.ErrorHandler = func(rw http.ResponseWriter, req *http.Request, e error) {
-		log.Error().Err(e).Msg("Proxy error")
-		http.Error(rw, "Error in proxying request", http.StatusInternalServerError)
-	}
-
-	proxy.Director = func(req *http.Request) {
-		req.URL = proxyURL
-		req.Header.Set("Authorization", "apikey "+computeResourceKey)
-		req.Host = proxyURL.Host
-		log.Info().Str("URL", req.URL.String()).Msg("Proxying request")
-	}
-
-	proxy.ServeHTTP(w, r)
-}
-
-func ExecuteCode(runtimeId string, code string) error {
-	url := fmt.Sprintf(executeEndpoint, runtimeId)
-
-	payload := fmt.Sprintf(`{"code": "%s"}`, code)
-	reqBody := bytes.NewBufferString(payload)
-
-	req, err := http.NewRequest("POST", url, reqBody)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to create HTTP request")
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Add("Authorization", "APIKey "+computeResourceKey)
-	req.Header.Add("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to send HTTP request")
-		return fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to read HTTP response")
-		return fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		log.Error().Int("StatusCode", resp.StatusCode).Str("ResponseBody", string(body)).Msg("Error response received")
-		return fmt.Errorf("received error status code %d: %s", resp.StatusCode, string(body))
-	}
-
-	log.Info().Str("ResponseBody", string(body)).Msg("Successfully executed code")
-	return nil
-}
-
-func periodicCodeExecution(apiKey string) {
-	time.Sleep(60 * time.Second)
-	ticker := time.NewTicker(50 * time.Second)
-	defer ticker.Stop()
-
-	sampleCode := "1+1"
-	for {
-		select {
-		case <-ticker.C:
-			runtimeID, err := getRuntimeID(apiKey, false)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to get runtime ID for code execution")
-				panic("Can't get runtime id")
-			}
-
-			err = ExecuteCode(runtimeID, sampleCode)
-			if err != nil {
-				lastCodeHealthCheck = false
-				log.Error().Err(err).Msg("Failed to execute code")
-				panic("Health Ping Failed")
-			} else {
-				log.Info().Msg("Periodic code execution successful")
-			}
-		}
-	}
-}
-
-func getRuntimeID(apiKey string, forceRefresh bool) (string, error) {
-	log.Info().Msg("GetRuntimeID")
-	runtimeMutex.Lock()
-	defer runtimeMutex.Unlock()
-
-	if cachedRuntimeID != "" && !forceRefresh {
-		return cachedRuntimeID, nil
-	}
-
-	return fetchRuntimeID(apiKey)
-}
-
-func fetchRuntimeID(apiKey string) (string, error) {
-	retryDelay := initialRetryDelay
-
-	for i := 0; i < maxRetries; i++ {
-		log.Info().Int("Attempt", i+1).Msg("Fetching Runtime ID")
-		runtimeID, err := attemptFetchRuntimeID(apiKey)
-		if err == nil {
-			return runtimeID, nil
-		}
-
-		log.Error().Err(err).Int("Attempt", i+1).Msg("Failed to fetch Runtime ID")
-		time.Sleep(retryDelay)
-		retryDelay *= 2
-	}
-	return "", errors.New("Maximum retries reached for getRuntimeID")
-}
-
-func attemptFetchRuntimeID(apiKey string) (string, error) {
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", apiEndpoint, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("apikey %s", apiKey))
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("non-OK HTTP status: %d", resp.StatusCode)
-	}
-
-	var runtimes AcaPoolPythonRuntimesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&runtimes); err != nil {
-		return "", err
-	}
-
-	if len(runtimes.Items) == 0 {
-		return createRuntime(apiKey, client)
-	}
-
-	cachedRuntimeID = runtimes.Items[0].Id
-	return cachedRuntimeID, nil
-}
-
-func createRuntime(apiKey string, client *http.Client) (string, error) {
-	createRuntimeURL := "http://127.0.0.1:80/api/runtimes"
-
-	requestData := struct{}{}
-
-	jsonData, err := json.Marshal(requestData)
-	if err != nil {
-		return "", errors.Wrap(err, "failed to marshal request data")
-	}
-
-	req, err := http.NewRequest("POST", createRuntimeURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", errors.Wrap(err, "failed to create POST request")
-	}
-
-	req.Header.Add("Authorization", fmt.Sprintf("apikey %s", apiKey))
-	req.Header.Add("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", errors.Wrap(err, "failed to send POST request")
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to create runtime, status code: %d", resp.StatusCode)
-	}
-
-	var runtimeResponse AcaPoolPythonRuntimeResponse
-	if err := json.NewDecoder(resp.Body).Decode(&runtimeResponse); err != nil {
-		return "", errors.Wrap(err, "failed to decode response")
-	}
-
-	return runtimeResponse.Id, nil
-}
-
-func logAndRespond(w http.ResponseWriter, statusCode int, errCode, errMsg string) {
-	log.Error().Str("error_code", errCode).Msg(errMsg)
-	http.Error(w, fmt.Sprintf("%s: %s", errCode, errMsg), statusCode)
+const jupyterURL = "http://localhost:8888"
+const timeout = 60 * time.Second
+
+var token = ""
+
+// JupyterMessage represents a Jupyter message structure.
+type JupyterMessage struct {
+	Header       map[string]interface{} `json:"header"`
+	Metadata     map[string]interface{} `json:"metadata"`
+	Content      map[string]interface{} `json:"content"`
+	ParentHeader map[string]interface{} `json:"parent_header"`
+	Channel      string                 `json:"channel"`
+	BufferPaths  []string               `json:"buffer_paths"`
 }
 
 func main() {
-	log.Info().Msg("Application starting up")
+	r := mux.NewRouter()
 
-	computeResourceKey = os.Getenv("OfficePy__ComputeResourceKey")
+	// Define your routes
+	r.HandleFunc("/", initializeJupyter).Methods("GET")
+	r.HandleFunc("/execute", execute).Methods("POST")
 
-	if computeResourceKey == "" {
-		computeResourceKey = "/acasessions"
-	} else {
-		computeResourceKey = "/" + computeResourceKey
+	// Start the HTTP server
+	http.Handle("/", r)
+	fmt.Println("Server listening on :8080")
+	http.ListenAndServe(":8080", nil)
+}
+
+// func to take token from the environment variable
+func getToken() string {
+	token = os.Getenv("JUPYTER_TOKEN")
+	if token == "" {
+		log.Fatal("JUPYTER_TOKEN environment variable not set")
+	}
+	return token
+}
+
+// func to initialize jupyter
+func initializeJupyter(w http.ResponseWriter, r *http.Request) {
+	// get token from the environment variable
+	token = getToken()
+	checkKernels("")
+}
+
+// check if there are any available kernels running and if so create a new session
+func checkKernels(kernelId string) (string, string) {
+	fmt.Println("Checking for available kernels:")
+
+	url := fmt.Sprintf("%s/api/kernels?token=%s", jupyterURL, token)
+	response, err := http.Get(url)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	log.Info().Str("Compute Resource Key", computeResourceKey).Msg("Logging compute resource key")
-	lastCodeHealthCheck = true
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	router := mux.NewRouter()
+	var kernels []Kernel
+	err = json.Unmarshal(body, &kernels)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	router.HandleFunc("/healthz", healthHandler).Methods("GET")
-	router.HandleFunc("/listfiles", listFilesHandler).Methods("GET")
-	router.HandleFunc("/listfiles/{path:.*}", listFilesHandler).Methods("GET")
-	router.HandleFunc("/upload", uploadFileHandler).Methods("POST")
-	router.HandleFunc("/upload/{path:.*}", uploadFileHandler).Methods("POST")
-	router.HandleFunc("/download/{filename}", downloadFileHandler).Methods("GET")
-	router.HandleFunc("/download/{path:.*}/{filename}", downloadFileHandler).Methods("GET")
-	router.HandleFunc("/delete/{filename}", deleteFileHandler).Methods("DELETE")
-	router.HandleFunc("/get/{filename}", getFileHandler).Methods("GET")
-	router.PathPrefix("/{path:.*}").HandlerFunc(proxyHandler)
+	fmt.Println(kernels)
 
-	go periodicCodeExecution(computeResourceKey)
+	var sessionId string
+	// if kernel exists, respond with kernel Id
+	if len(kernels) > 0 {
+		fmt.Printf("Kernel ID: %s\n", kernels[0].ID)
+		sessions := getSessions()
 
-	log.Info().Msg("Starting server on port :6000")
-	http.ListenAndServe(":6000", router)
+		// return the first session or the session related to the passed kernelId
+		if len(sessions) > 0 {
+			if kernelId != "" {
+				for _, session := range sessions {
+					kernelInfo := session.Kernel
+					if kernelInfo.ID == kernelId {
+						sessionId = session.ID
+						// kernelId = kernelId --> not required since we already have the kernelId
+						fmt.Printf("Session ID: %s\n", session.ID)
+						break
+					}
+				}
+			} else {
+				sessionId = sessions[0].ID
+				kernelId = sessions[0].Kernel.ID
+			}
+		}
+	} else {
+		newSession := createSession()
+		fmt.Printf("Session ID: %s\n", sessionId)
+		sessionId = newSession.ID
+		kernelId = newSession.Kernel.ID
+	}
+
+	return kernelId, sessionId
+}
+
+// get sessions and return json object
+func getSessions() []Session {
+	fmt.Println("Listing available sessions:")
+
+	url := fmt.Sprintf("%s/api/sessions?token=%s", jupyterURL, token)
+	response, err := http.Get(url)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var sessions []Session
+	err = json.Unmarshal(body, &sessions)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(sessions)
+
+	return sessions
+}
+
+func createSession() Session {
+	fmt.Println("Creating a new session:")
+
+	// payload for POST request to create session as io.Reader value
+	payload := bytes.NewBuffer([]byte(`{"path": "", "type": "notebook", "kernel": {"name": "python3"}}`))
+
+	url := fmt.Sprintf("%s/api/sessions?token=%s", jupyterURL, token)
+	response, err := http.Post(url, "application/json", payload)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var sessionInfo Session
+	err = json.Unmarshal(body, &sessionInfo)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return sessionInfo
+}
+
+func execute(w http.ResponseWriter, r *http.Request) {
+	// read code from the request body
+	code, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// get the kernelId
+	kernelId, sessionId := checkKernels("")
+
+	// This is just for testing purposes
+	// if code == nil {
+	// 	// Example: Execute Python code in the created session
+	// 	sampleCode := "print('Hello, Earth!')" //"import matplotlib.pyplot as plt \nimport numpy as np \nx = np.linspace(-2*np.pi, 2*np.pi, 1000) \ny = np.tan(x) \nplt.plot(x, y) \nplt.ylim(-10, 10) \nplt.title('Tangent Curve') \nplt.xlabel('x') \nplt.ylabel('tan(x)') \nplt.grid(True) \nplt.show()" //"1+3" //"print('Hello, Jupyter!')"
+	// 	code = []byte(sampleCode)
+	// }
+
+	// conver the byte array to JSON and read the value for code
+	var codeString ExecuteRequest
+	err = json.Unmarshal(code, &codeString)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// {"code": "print('Hello, Earth!')"}
+
+	// execute the code
+	response := executeCode(kernelId, sessionId, codeString.Code)
+
+	// return the response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(response))
+
+}
+
+func executeCode(kernelId, sessionId, code string) string {
+	fmt.Println("Executing code in the session using WebSocket:")
+
+	responseChan := connectWebSocket(kernelId, code)
+
+	// Wait for response or timeout
+	select {
+	case response := <-responseChan:
+		fmt.Println("Received response:", response)
+		return response
+	case <-time.After(60 * time.Second): // Timeout after 10 seconds
+		fmt.Println("Timeout: No response received.")
+		return "Timeout: No response received."
+	}
+}
+
+func onMessage(message []byte) string {
+	fmt.Printf("Received message: %s\n", message)
+	var msg map[string]interface{}
+	err := json.Unmarshal(message, &msg)
+	if err != nil {
+		log.Fatal("Error unmarshaling JSON:", err)
+	}
+	header := msg["header"].(map[string]interface{})
+	msgType := header["msg_type"].(string)
+
+	switch msgType {
+	case "stream":
+		content := msg["content"].(map[string]interface{})
+		if content["name"].(string) == "stdout" {
+			fmt.Printf("\n\nSTDOUT: %s\n", content["text"])
+			return content["text"].(string)
+		} else if content["name"].(string) == "stderr" {
+			fmt.Printf("\n\nSTDERR: %s\n", content["text"])
+			return content["text"].(string)
+		}
+	case "execute_result":
+		content := msg["content"]
+		data := content.(map[string]interface{})["data"]
+		text := data.(map[string]interface{})["text/plain"]
+		return text.(string)
+	}
+
+	return ""
+}
+
+func onError(err error) {
+	log.Println("Error:", err)
+}
+
+func onClose() {
+	log.Println("### closed ###")
+	// TODO: Commenting for now, since the Wg.Done() is adding negative value to the counter even when there are no goroutines running
+	// wg.Done()
+}
+
+func onOpen(ws *websocket.Conn, code string) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		header := createHeader("execute_request")
+		parentHeader := make(map[string]interface{})
+		metadata := make(map[string]interface{})
+		content := map[string]interface{}{
+			"code":             code,
+			"silent":           false,
+			"store_history":    true,
+			"user_expressions": make(map[string]interface{}),
+			"allow_stdin":      false,
+		}
+		secret := token // Replace with the actual key
+		signature := signMessage(header, parentHeader, metadata, content, secret)
+
+		message := map[string]interface{}{
+			"header":        header,
+			"parent_header": parentHeader,
+			"metadata":      metadata,
+			"content":       content,
+			"buffers":       []interface{}{},
+			"signature":     signature,
+		}
+
+		err := ws.WriteJSON(message)
+		if err != nil {
+			log.Fatal("Error writing JSON:", err)
+		}
+	}()
+
+	wg.Wait()
+}
+
+// connect via websocket and execute code and return the result
+func connectWebSocket(kernelID string, code string) <-chan string {
+	responseChan := make(chan string)
+
+	interruptSignal := make(chan os.Signal, 1)
+	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
+
+	u := url.URL{Scheme: "ws", Host: "localhost:8888", Path: "/api/kernels/" + kernelID + "/channels", RawQuery: "token=" + token}
+	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		log.Fatal("Error connecting to WebSocket:", err)
+		close(responseChan)
+		return responseChan
+	}
+
+	c.SetCloseHandler(func(code int, text string) error {
+		log.Printf("WebSocket closed with code %d: %s\n", code, text)
+		onClose()
+		return nil
+	})
+
+	c.SetPingHandler(func(appData string) error {
+		log.Println("Received ping:", appData)
+		return nil
+	})
+
+	c.SetPongHandler(func(appData string) error {
+		log.Println("Received pong:", appData)
+		return nil
+	})
+
+	go func() {
+		defer close(responseChan)
+
+		startTime := time.Now()
+		for {
+			_, message, err := c.ReadMessage()
+			// print elapsed time since the start of this loop
+			log.Println("Time waiting for response:", time.Since(startTime))
+
+			// close the connection if we wait for more than timeout
+			if time.Since(startTime) > timeout {
+				log.Println("Timeout: No response received.")
+				c.Close()
+				return
+			}
+			if err != nil {
+				if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+					log.Println("Error reading message:", err)
+				}
+				return
+			}
+			response := onMessage(message)
+			if response != "" {
+				responseChan <- response
+				break
+			}
+		}
+	}()
+
+	onOpen(c, code)
+
+	go func() {
+		select {
+		case <-interruptSignal:
+			log.Println("Interrupt signal received, closing WebSocket...")
+			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			if err != nil {
+				log.Println("Error sending close message:", err)
+			}
+		}
+	}()
+
+	return responseChan
+}
+
+func createHeader(msgType string) map[string]interface{} {
+	msgID, err := uuid.NewV4()
+	if err != nil {
+		log.Fatal("Error generating UUID:", err)
+	}
+
+	sessionID, err := uuid.NewV4()
+	if err != nil {
+		log.Fatal("Error generating UUID:", err)
+	}
+
+	return map[string]interface{}{
+		"msg_id":   msgID.String(),
+		"username": "username",
+		"session":  sessionID.String(),
+		"msg_type": msgType,
+		"version":  "5.3", // or other protocol version as needed
+	}
+}
+
+func signMessage(header, parentHeader, metadata, content map[string]interface{}, secret string) string {
+	h := hmac.New(sha256.New, []byte(secret))
+	for _, part := range []map[string]interface{}{header, parentHeader, metadata, content} {
+		data, err := json.Marshal(part)
+		if err != nil {
+			log.Fatal("Error marshaling JSON:", err)
+		}
+		h.Write(data)
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+func sendMessage(conn *websocket.Conn, message JupyterMessage) {
+	if err := conn.WriteJSON(message); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func receiveMessage(conn *websocket.Conn) JupyterMessage {
+	var response JupyterMessage
+	if err := conn.ReadJSON(&response); err != nil {
+		log.Fatal(err)
+	}
+
+	return response
 }
