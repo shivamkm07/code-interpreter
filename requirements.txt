@@ -1,7 +1,7 @@
 opencv-python
 googletrans
 selenium
-language_tool_python
+language-tool-python
 spacy
 tensorflow
 pyautogui
@@ -21,9 +21,9 @@ docker
 python-pptx==0.6.21
 RPi.GPIO
 qrcode
-docx
+python-docx
 openai
-numpy_financial
+numpy-financial
 machine
 inflect
 keras
@@ -33,3 +33,8 @@ graphviz
 gensim
 google
 PyPDF2
+librosa
+pydub
+soundfile
+mutagen
+wave
