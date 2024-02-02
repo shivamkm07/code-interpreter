@@ -49,8 +49,22 @@ type Notebook struct {
 	Name string `json:"name"`
 }
 
-type ExecuteRequest struct {
+type ExecutionRequest struct {
 	Code string `json:"code"`
+}
+
+type ExecutionResponse struct {
+	Hresult        int            `json:"hresult"`
+	Result         string         `json:"result"`
+	ErrorName      string         `json:"error_name"`
+	ErrorMessage   string         `json:"error_message"`
+	Stdout         string         `json:"stdout"`
+	Stderr         string         `json:"stderr"`
+	DiagnosticInfo DiagnosticInfo `json:"diagnosticInfo"`
+}
+
+type DiagnosticInfo struct {
+	ExecutionDuration int `json:"executionDuration"`
 }
 
 const jupyterURL = "http://localhost:8888"
@@ -75,10 +89,20 @@ func main() {
 	r.HandleFunc("/", initializeJupyter).Methods("GET")
 	r.HandleFunc("/execute", execute).Methods("POST")
 
-	// Start the HTTP server
-	http.Handle("/", r)
+	// health check
+	r.HandleFunc("/health", healthCheck).Methods("GET")
+
 	fmt.Println("Server listening on :8080")
-	http.ListenAndServe(":8080", nil)
+
+	// Run health check in the background
+	go func() {
+		for {
+			healthCheck(&dummyResponseWriter{}, nil) // Pass nil values for *http.Request
+			time.Sleep(60 * time.Second)             // Adjust the interval as needed
+		}
+	}()
+
+	http.ListenAndServe(":8080", r)
 }
 
 // func to take token from the environment variable
@@ -214,6 +238,19 @@ func createSession() Session {
 	return sessionInfo
 }
 
+// health check
+func healthCheck(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Periodic Health check")
+	// recursively call the execute function with a sample code to ensure that the Jupyter notebook is running
+	r = &http.Request{
+		Method: "POST",
+		Body: ioutil.NopCloser(
+			bytes.NewBufferString(`{"code": "2+2"}`),
+		),
+	}
+	execute(w, r)
+}
+
 func execute(w http.ResponseWriter, r *http.Request) {
 	// read code from the request body
 	code, err := ioutil.ReadAll(r.Body)
@@ -232,12 +269,11 @@ func execute(w http.ResponseWriter, r *http.Request) {
 	// }
 
 	// conver the byte array to JSON and read the value for code
-	var codeString ExecuteRequest
+	var codeString ExecutionRequest
 	err = json.Unmarshal(code, &codeString)
 	if err != nil {
 		log.Fatal(err)
 	}
-	// {"code": "print('Hello, Earth!')"}
 
 	// execute the code
 	response := executeCode(kernelId, sessionId, codeString.Code)
@@ -245,14 +281,19 @@ func execute(w http.ResponseWriter, r *http.Request) {
 	// return the response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(response))
+	// convert the response to JSON and return
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		log.Fatal(err)
+	}
+	w.Write(jsonResponse)
 
 }
 
-func executeCode(kernelId, sessionId, code string) string {
+func executeCode(kernelId, sessionId, code string) ExecutionResponse {
 	fmt.Println("Executing code in the session using WebSocket:")
 
-	responseChan := connectWebSocket(kernelId, code)
+	responseChan := connectWebSocket(kernelId, sessionId, code)
 
 	// Wait for response or timeout
 	select {
@@ -261,11 +302,18 @@ func executeCode(kernelId, sessionId, code string) string {
 		return response
 	case <-time.After(60 * time.Second): // Timeout after 10 seconds
 		fmt.Println("Timeout: No response received.")
-		return "Timeout: No response received."
+		return ExecutionResponse{
+			Hresult:      1,
+			Result:       "",
+			ErrorName:    "Timeout",
+			ErrorMessage: "No response received",
+			Stdout:       "",
+			Stderr:       "",
+		}
 	}
 }
 
-func onMessage(message []byte) string {
+func onMessage(message []byte) map[string]interface{} {
 	fmt.Printf("Received message: %s\n", message)
 	var msg map[string]interface{}
 	err := json.Unmarshal(message, &msg)
@@ -280,19 +328,23 @@ func onMessage(message []byte) string {
 		content := msg["content"].(map[string]interface{})
 		if content["name"].(string) == "stdout" {
 			fmt.Printf("\n\nSTDOUT: %s\n", content["text"])
-			return content["text"].(string)
+			// return content["text"].(string)
 		} else if content["name"].(string) == "stderr" {
 			fmt.Printf("\n\nSTDERR: %s\n", content["text"])
-			return content["text"].(string)
 		}
+		return content
 	case "execute_result":
-		content := msg["content"]
-		data := content.(map[string]interface{})["data"]
-		text := data.(map[string]interface{})["text/plain"]
-		return text.(string)
+		content := msg["content"].(map[string]interface{})
+		return content
+	case "display_data":
+		content := msg["content"].(map[string]interface{})
+		return content
+	case "execute_reply":
+		content := msg["content"].(map[string]interface{})
+		return content
 	}
 
-	return ""
+	return nil
 }
 
 func onError(err error) {
@@ -305,12 +357,12 @@ func onClose() {
 	// wg.Done()
 }
 
-func onOpen(ws *websocket.Conn, code string) {
+func onOpen(ws *websocket.Conn, sessionId string, code string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
-		header := createHeader("execute_request")
+		header := createHeader("execute_request", sessionId)
 		parentHeader := make(map[string]interface{})
 		metadata := make(map[string]interface{})
 		content := map[string]interface{}{
@@ -342,8 +394,8 @@ func onOpen(ws *websocket.Conn, code string) {
 }
 
 // connect via websocket and execute code and return the result
-func connectWebSocket(kernelID string, code string) <-chan string {
-	responseChan := make(chan string)
+func connectWebSocket(kernelID string, sessionID string, code string) <-chan ExecutionResponse {
+	responseChan := make(chan ExecutionResponse)
 
 	interruptSignal := make(chan os.Signal, 1)
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
@@ -378,6 +430,7 @@ func connectWebSocket(kernelID string, code string) <-chan string {
 		startTime := time.Now()
 		for {
 			_, message, err := c.ReadMessage()
+
 			// print elapsed time since the start of this loop
 			log.Println("Time waiting for response:", time.Since(startTime))
 
@@ -394,14 +447,15 @@ func connectWebSocket(kernelID string, code string) <-chan string {
 				return
 			}
 			response := onMessage(message)
-			if response != "" {
-				responseChan <- response
+			if response != nil {
+				result := convertToExecutionResult(response, startTime)
+				responseChan <- result
 				break
 			}
 		}
 	}()
 
-	onOpen(c, code)
+	onOpen(c, sessionID, code)
 
 	go func() {
 		select {
@@ -417,7 +471,43 @@ func connectWebSocket(kernelID string, code string) <-chan string {
 	return responseChan
 }
 
-func createHeader(msgType string) map[string]interface{} {
+// func to convert response to ExecutionResult
+func convertToExecutionResult(response map[string]interface{}, startTime time.Time) ExecutionResponse {
+	var result ExecutionResponse
+	/* if response is in the format - "data": {
+		"text/plain": "25"
+		},
+		"metadata": {},
+		"execution_count": 3
+	}*/
+	// then Result should be "text/plain": "25"
+	/* if response is in the format - {
+						"name": "stdout",
+	    				"text": "Hello Earth"
+					}*/
+	// the Stdout should be "Hello Earth" and Result should be stdout
+	if response["name"] == "stdout" {
+		result.Stdout = response["text"].(string)
+		result.Result = "stdout"
+	}
+	if response["status"] == "error" {
+		//result.Result = response["traceback"].([]interface{})[0].(string)
+		result.ErrorName = response["ename"].(string)
+		result.ErrorMessage = response["evalue"].(string)
+	}
+	if response["data"] != nil {
+		// iterate over the data and get the value of different types of data and keep adding to the result
+		for _, value := range response["data"].(map[string]interface{}) {
+			result.Result += value.(string) + "; "
+		}
+	}
+
+	result.DiagnosticInfo.ExecutionDuration = int(time.Since(startTime).Seconds())
+
+	return result
+}
+
+func createHeader(msgType string, sessionId string) map[string]interface{} {
 	msgID, err := uuid.NewV4()
 	if err != nil {
 		log.Fatal("Error generating UUID:", err)
@@ -463,3 +553,16 @@ func receiveMessage(conn *websocket.Conn) JupyterMessage {
 
 	return response
 }
+
+// dummyResponseWriter is a minimal implementation of http.ResponseWriter
+type dummyResponseWriter struct{}
+
+func (d *dummyResponseWriter) Header() http.Header {
+	return make(http.Header)
+}
+
+func (d *dummyResponseWriter) Write([]byte) (int, error) {
+	return 0, nil
+}
+
+func (d *dummyResponseWriter) WriteHeader(int) {}

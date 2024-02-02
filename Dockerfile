@@ -15,27 +15,45 @@ COPY . .
 # Build the Go app
 RUN go build -o goclientapp .
 
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libcairo2-dev \
-    python3-dev \
-    gcc \
-    libc6-dev \
-    linux-headers-amd64 \
-    binutils \
-    libdbus-1-dev \
-    gawk \
-    autoconf \
-    net-tools
-
 FROM jupyter/base-notebook:latest
 
 WORKDIR /app
 
 # Set permissions
 USER root
+
+RUN apt-get update && apt-get install -y \
+    gcc \
+    wget \
+    pkg-config \
+    libcairo2-dev \
+    python3-dev \
+    libc6-dev \
+    binutils \
+    libdbus-1-dev \
+    gawk \
+    autoconf \
+    net-tools \
+    gcc make build-essential
+
+# Set the Python version you want to install
+ARG PYTHON_VERSION=3.12.1
+
+# Download and extract Python source
+RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
+    tar -xzf Python-${PYTHON_VERSION}.tgz
+
+# Build and install Python
+WORKDIR /app/Python-${PYTHON_VERSION}
+RUN ./configure --enable-optimizations && \
+    make -j "$(nproc)" && \
+    make altinstall
+
+# cleanup
+RUN rm -rf /app/Python-${PYTHON_VERSION} && \
+    rm /app/Python-${PYTHON_VERSION}.tgz
+
+WORKDIR /app
 
 # Change owner and group of the copied files
 COPY --chown=jovyan:jovyan --from=builder /app/goclientapp .
@@ -47,11 +65,11 @@ RUN usermod -aG sudo jovyan && echo 'jovyan ALL=(ALL) NOPASSWD:ALL' >> /etc/sudo
 USER jovyan
 
 RUN chmod +x /app/goclientapp
-#COPY requirements.txt /app/requirements.txt
+COPY requirements.txt /app/requirements.txt
 
 # Install Python packages
-# RUN python -m ensurepip
-# RUN pip install -r /app/requirements.txt
+RUN python -m ensurepip
+RUN pip install -r /app/requirements.txt
 
 # Ensure the script is executable
 RUN chmod +x /app/entrypoint.sh
