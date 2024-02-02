@@ -695,5 +695,5 @@ func main() {
 	go periodicCodeExecution(computeResourceKey)
 
 	log.Info().Msg("Starting server on port :6000")
-	http.ListenAndServe(":6000", router)
+	http.ListenAndServeTLS(":6000", "cert.pem", "key.pem", router)
 }
