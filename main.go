@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+    "strings"
 
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
@@ -109,9 +110,13 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// supports both uploadFile and uploadFile/{path}
 	if customPath, ok := vars["path"]; ok && customPath != "" {
-		// clean the path to prevent directory traversal attacks
-		customPath = filepath.Clean("/" + customPath)
-		targetPath = filepath.Join(dirPath, customPath)
+		decodedPath, err := unescapeAndCleanPath(customPath);
+		if  err != nil {
+			log.Error().Err(err).Msg("Unable to url decode path")
+			http.Error(w, "Unable to url decode path", http.StatusBadRequest)
+			return
+		}
+		targetPath = filepath.Join(dirPath, decodedPath)
 	}
 
 	err := r.ParseMultipartForm(250 << 20) // 250MB limit
@@ -205,11 +210,15 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	filename := filepath.Base(decodedFilename)
 
 	targetPath := dirPath
-	// supports both dowloadFile and dowloadFile/{path}/{fileName}
+	// supports both downloadFile and downloadFile/{path}/{fileName}
 	if customPath, ok := vars["path"]; ok && customPath != "" {
-		// clean the path to prevent directory traversal attacks
-		customPath = filepath.Clean("/" + customPath)
-		targetPath = filepath.Join(dirPath, customPath)
+		decodedPath, err := unescapeAndCleanPath(customPath);
+		if  err != nil {
+			log.Error().Err(err).Msg("Unable to url decode path")
+			http.Error(w, "Unable to url decode path", http.StatusBadRequest)
+			return
+		}
+		targetPath = filepath.Join(dirPath, decodedPath)
 	}
 
 	filePath := filepath.Join(targetPath, filename)
@@ -330,9 +339,13 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 
 	// supports both listFiles and listFiles/{path}
 	if customPath, ok := vars["path"]; ok && customPath != "" {
-		// clean the path to prevent directory traversal attacks
-		customPath = filepath.Clean("/" + customPath)
-		targetPath = filepath.Join(dirPath, customPath)
+		decodedPath, err := unescapeAndCleanPath(customPath);
+		if  err != nil {
+			log.Error().Err(err).Msg("Unable to url decode path")
+			http.Error(w, "Unable to url decode path", http.StatusBadRequest)
+			return
+		}
+		targetPath = filepath.Join(dirPath, decodedPath)
 	}
 
 	files, err := os.ReadDir(targetPath)
@@ -591,6 +604,28 @@ func createRuntime(apiKey string, client *http.Client) (string, error) {
 func logAndRespond(w http.ResponseWriter, statusCode int, errCode, errMsg string) {
 	log.Error().Str("error_code", errCode).Msg(errMsg)
 	http.Error(w, fmt.Sprintf("%s: %s", errCode, errMsg), statusCode)
+}
+
+// unencodes each path segment, divided by a `/`. Also, sanitizes to start with / and not end with /
+// before: %C2%A5%C2%B7%C2%A3/te%24t/  (¥·£/te$t/)
+// after: /¥·£/te$t
+func unescapeAndCleanPath(path string) (string, error) {
+	pathSegments := strings.Split(path, "/")
+	unescapedPath := "/"
+	for _, pathSegment := range pathSegments {
+		if len(pathSegment) == 0 {
+			continue
+		}
+		decodedPathSegment, err := url.QueryUnescape(pathSegment)
+		if err != nil {
+			return "", err
+		}
+		unescapedPath += decodedPathSegment
+	}
+	
+	// clean the path to prevent directory traversal attacks
+	decodedPath := filepath.Clean(unescapedPath)
+	return decodedPath, nil
 }
 
 func main() {
