@@ -611,7 +611,7 @@ func logAndRespond(w http.ResponseWriter, statusCode int, errCode, errMsg string
 // after: /¥·£/te$t
 func unescapeAndCleanPath(path string) (string, error) {
 	pathSegments := strings.Split(path, "/")
-	unescapedPath := "/"
+	unescapedPath := ""
 	for _, pathSegment := range pathSegments {
 		if len(pathSegment) == 0 {
 			continue
@@ -620,7 +620,7 @@ func unescapeAndCleanPath(path string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		unescapedPath += decodedPathSegment
+		unescapedPath += fmt.Sprintf("/%v", decodedPathSegment)
 	}
 	
 	// clean the path to prevent directory traversal attacks
