@@ -53,6 +53,9 @@ RUN ./configure --enable-optimizations && \
 RUN rm -rf /app/Python-${PYTHON_VERSION} && \
     rm /app/Python-${PYTHON_VERSION}.tgz
 
+# Create a directory for the data
+RUN mkdir -p /mnt/data && chmod 777 /mnt/data
+
 WORKDIR /app
 
 # Change owner and group of the copied files
@@ -73,7 +76,6 @@ RUN pip install -r /app/requirements.txt
 
 # Ensure the script is executable
 RUN chmod +x /app/entrypoint.sh
-#RUN mkdir -p /mnt/data && chmod 777 /mnt/data
 
 # Use the "exec" form of CMD to ensure that the server
 # becomes PID 1, and thus receives Unix signal notifications,

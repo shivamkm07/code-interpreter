@@ -113,7 +113,7 @@ olefile
 opencv-python
 opt-einsum
 orjson
-#oscrypto
+oscrypto
 paramiko
 pathy
 pdf2image
@@ -128,8 +128,8 @@ priority
 proglog
 pronouncing
 pycountry
-#pycryptodome
-#pycryptodomex
+pycryptodome
+pycryptodomex
 pydantic
 pydub
 pydyf
@@ -204,7 +204,7 @@ rdkit
 boto3
 serial
 docker
-#RPi.GPIO
+RPi.GPIO
 openai
 machine
 streamlit

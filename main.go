@@ -6,15 +6,21 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
-	"log"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/gofrs/uuid"
 	"github.com/gorilla/mux"
@@ -25,6 +31,11 @@ var (
 	interrupt = make(chan os.Signal, 1)
 	wg        sync.WaitGroup
 )
+
+func init() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	log.Logger = log.Output(os.Stdout)
+}
 
 // define kernel and session
 type Kernel struct {
@@ -67,11 +78,6 @@ type DiagnosticInfo struct {
 	ExecutionDuration int `json:"executionDuration"`
 }
 
-const jupyterURL = "http://localhost:8888"
-const timeout = 60 * time.Second
-
-var token = "test"
-
 // JupyterMessage represents a Jupyter message structure.
 type JupyterMessage struct {
 	Header       map[string]interface{} `json:"header"`
@@ -82,25 +88,53 @@ type JupyterMessage struct {
 	BufferPaths  []string               `json:"buffer_paths"`
 }
 
+type FileMetadata struct {
+	Name        string    `json:"name"`
+	Type        string    `json:"type"`
+	Filename    string    `json:"filename"` // remove this after CP change since we have name
+	Size        int64     `json:"size"`
+	LastModTime time.Time `json:"last_modified_time"`
+	MIMEType    string    `json:"mime_type"` // remove this after CP change since we have type
+}
+
+const (
+	jupyterURL               = "http://localhost:8888"
+	timeout                  = 60 * time.Second
+	dirPath                  = "/mnt/data"
+	fileType                 = "file"
+	dirType                  = "directory"
+	ErrCodeFileNotFound      = "ERR_FILE_NOT_FOUND"
+	ErrCodeFileAccess        = "ERR_FILE_ACCESS"
+	ErrCodeSymlinkNotAllowed = "ERR_SYMLINK_NOT_ALLOWED"
+)
+
+var token = "test"
+var lastCodeHealthCheck bool
+
 func main() {
 	r := mux.NewRouter()
+
+	log.Info().Msgf("Starting Jupyter API server with token: %s", token)
 
 	// Define your routes
 	r.HandleFunc("/", initializeJupyter).Methods("GET")
 	r.HandleFunc("/execute", execute).Methods("POST")
 
 	// health check
-	r.HandleFunc("/health", healthCheck).Methods("GET")
+	r.HandleFunc("/health", healthHandler).Methods("GET")
+	r.HandleFunc("/listfiles", listFilesHandler).Methods("GET")
+	r.HandleFunc("/listfiles/{path:.*}", listFilesHandler).Methods("GET")
+	r.HandleFunc("/upload", uploadFileHandler).Methods("POST")
+	r.HandleFunc("/upload/{path:.*}", uploadFileHandler).Methods("POST")
+	r.HandleFunc("/download/{filename}", downloadFileHandler).Methods("GET")
+	r.HandleFunc("/download/{path:.*}/{filename}", downloadFileHandler).Methods("GET")
+	r.HandleFunc("/delete/{filename}", deleteFileHandler).Methods("DELETE")
+	r.HandleFunc("/get/{filename}", getFileHandler).Methods("GET")
 
 	fmt.Println("Server listening on :8080")
 
 	// Run health check in the background
-	go func() {
-		for {
-			healthCheck(&dummyResponseWriter{}, nil) // Pass nil values for *http.Request
-			time.Sleep(60 * time.Second)             // Adjust the interval as needed
-		}
-	}()
+	go periodicCodeExecution()
 
 	http.ListenAndServe(":8080", r)
 }
@@ -110,7 +144,7 @@ func getToken() string {
 	token = os.Getenv("JUPYTER_TOKEN")
 	if token == "" {
 		token = "test"
-		log.Println("Token not found in the environment variable. Using default token:", token)
+		log.Info().Msg("Token not found in environment variable, using default token %s" + token)
 	}
 	return token
 }
@@ -128,25 +162,26 @@ func initializeJupyter(w http.ResponseWriter, r *http.Request) {
 }
 
 // check if there are any available kernels running and if so create a new session
+// return the kernelId and sessionId
 func checkKernels(kernelId string) (string, string) {
-	fmt.Println("Checking for available kernels:")
+	fmt.Println("Checking for available kernels...")
 
 	url := fmt.Sprintf("%s/api/kernels?token=%s", jupyterURL, token)
 	response, err := http.Get(url)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error getting kernels")
 	}
 
 	defer response.Body.Close()
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error reading response body")
 	}
 
 	var kernels []Kernel
 	err = json.Unmarshal(body, &kernels)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error unmarshaling JSON")
 	}
 
 	fmt.Println(kernels)
@@ -176,7 +211,7 @@ func checkKernels(kernelId string) (string, string) {
 		}
 	} else {
 		newSession := createSession()
-		fmt.Printf("Session ID: %s\n", sessionId)
+		fmt.Printf("Session ID: %s\n", newSession.ID)
 		sessionId = newSession.ID
 		kernelId = newSession.Kernel.ID
 	}
@@ -191,19 +226,19 @@ func getSessions() []Session {
 	url := fmt.Sprintf("%s/api/sessions?token=%s", jupyterURL, token)
 	response, err := http.Get(url)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error getting sessions")
 	}
 
 	defer response.Body.Close()
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error reading response body")
 	}
 
 	var sessions []Session
 	err = json.Unmarshal(body, &sessions)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error unmarshaling JSON")
 	}
 
 	fmt.Println(sessions)
@@ -212,7 +247,7 @@ func getSessions() []Session {
 }
 
 func createSession() Session {
-	fmt.Println("Creating a new session:")
+	fmt.Println("Creating a new session...")
 
 	// payload for POST request to create session as io.Reader value
 	payload := bytes.NewBuffer([]byte(`{"path": "", "type": "notebook", "kernel": {"name": "python3"}}`))
@@ -220,42 +255,61 @@ func createSession() Session {
 	url := fmt.Sprintf("%s/api/sessions?token=%s", jupyterURL, token)
 	response, err := http.Post(url, "application/json", payload)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error creating session")
 	}
 
 	defer response.Body.Close()
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error reading response body")
 	}
 
 	var sessionInfo Session
 	err = json.Unmarshal(body, &sessionInfo)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error unmarshaling JSON")
 	}
 
 	return sessionInfo
 }
 
-// health check
-func healthCheck(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Periodic Health check")
-	// recursively call the execute function with a sample code to ensure that the Jupyter notebook is running
-	r = &http.Request{
-		Method: "POST",
-		Body: ioutil.NopCloser(
-			bytes.NewBufferString(`{"code": "2+2"}`),
-		),
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	if !lastCodeHealthCheck {
+		http.Error(w, "Unhealthy code exec failed", http.StatusInternalServerError)
+		return
 	}
-	execute(w, r)
+
+	fmt.Fprintln(w, "Healthy")
+}
+
+func periodicCodeExecution() {
+	time.Sleep(60 * time.Second)
+	ticker := time.NewTicker(50 * time.Second)
+	defer ticker.Stop()
+
+	sampleCode := "1+1"
+	for {
+		select {
+		case <-ticker.C:
+			kernelId, sessionId := checkKernels("")
+			response := executeCode(kernelId, sessionId, sampleCode)
+			if response.ErrorName == "" || response.Stderr == "" {
+				lastCodeHealthCheck = true
+				log.Info().Msg("Periodic code execution successful")
+			} else {
+				lastCodeHealthCheck = false
+				log.Error().Msg("Failed to execute code")
+				panic("Health Ping Failed")
+			}
+		}
+	}
 }
 
 func execute(w http.ResponseWriter, r *http.Request) {
 	// read code from the request body
 	code, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error reading request body")
 	}
 
 	// get the kernelId
@@ -272,7 +326,7 @@ func execute(w http.ResponseWriter, r *http.Request) {
 	var codeString ExecutionRequest
 	err = json.Unmarshal(code, &codeString)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error unmarshaling JSON")
 	}
 
 	// execute the code
@@ -284,7 +338,7 @@ func execute(w http.ResponseWriter, r *http.Request) {
 	// convert the response to JSON and return
 	jsonResponse, err := json.Marshal(response)
 	if err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error marshaling JSON")
 	}
 	w.Write(jsonResponse)
 
@@ -318,7 +372,7 @@ func onMessage(message []byte) map[string]interface{} {
 	var msg map[string]interface{}
 	err := json.Unmarshal(message, &msg)
 	if err != nil {
-		log.Fatal("Error unmarshaling JSON:", err)
+		log.Err(err).Msg("Error unmarshaling JSON")
 	}
 	header := msg["header"].(map[string]interface{})
 	msgType := header["msg_type"].(string)
@@ -348,11 +402,11 @@ func onMessage(message []byte) map[string]interface{} {
 }
 
 func onError(err error) {
-	log.Println("Error:", err)
+	log.Err(err).Msg("Error reading message")
 }
 
 func onClose() {
-	log.Println("### closed ###")
+	log.Info().Msg("Closing WebSocket...")
 	// TODO: Commenting for now, since the Wg.Done() is adding negative value to the counter even when there are no goroutines running
 	// wg.Done()
 }
@@ -386,7 +440,7 @@ func onOpen(ws *websocket.Conn, sessionId string, code string) {
 
 		err := ws.WriteJSON(message)
 		if err != nil {
-			log.Fatal("Error writing JSON:", err)
+			log.Err(err).Msg("Error writing message")
 		}
 	}()
 
@@ -403,24 +457,25 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 	u := url.URL{Scheme: "ws", Host: "localhost:8888", Path: "/api/kernels/" + kernelID + "/channels", RawQuery: "token=" + token}
 	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		log.Fatal("Error connecting to WebSocket:", err)
+		log.Err(err).Msg("Error dialing WebSocket")
 		close(responseChan)
 		return responseChan
 	}
 
 	c.SetCloseHandler(func(code int, text string) error {
 		log.Printf("WebSocket closed with code %d: %s\n", code, text)
+		log.Info().Msgf("WebSocket closed with code %d: %s\n", code, text)
 		onClose()
 		return nil
 	})
 
 	c.SetPingHandler(func(appData string) error {
-		log.Println("Received ping:", appData)
+		log.Info().Msgf("Received ping: %s\n", appData)
 		return nil
 	})
 
 	c.SetPongHandler(func(appData string) error {
-		log.Println("Received pong:", appData)
+		log.Info().Msgf("Received pong: %s\n", appData)
 		return nil
 	})
 
@@ -432,17 +487,17 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 			_, message, err := c.ReadMessage()
 
 			// print elapsed time since the start of this loop
-			log.Println("Time waiting for response:", time.Since(startTime))
+			log.Info().Msgf("Elapsed time: %s\n", time.Since(startTime))
 
 			// close the connection if we wait for more than timeout
 			if time.Since(startTime) > timeout {
-				log.Println("Timeout: No response received.")
+				log.Info().Msg("Timeout: No response received.")
 				c.Close()
 				return
 			}
 			if err != nil {
 				if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-					log.Println("Error reading message:", err)
+					log.Err(err).Msg("Error reading message")
 				}
 				return
 			}
@@ -460,10 +515,10 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 	go func() {
 		select {
 		case <-interruptSignal:
-			log.Println("Interrupt signal received, closing WebSocket...")
+			log.Info().Msg("Interrupt signal received. Closing WebSocket...")
 			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			if err != nil {
-				log.Println("Error sending close message:", err)
+				log.Err(err).Msg("Error writing close message")
 			}
 		}
 	}()
@@ -510,12 +565,12 @@ func convertToExecutionResult(response map[string]interface{}, startTime time.Ti
 func createHeader(msgType string, sessionId string) map[string]interface{} {
 	msgID, err := uuid.NewV4()
 	if err != nil {
-		log.Fatal("Error generating UUID:", err)
+		log.Err(err).Msg("Error generating UUID")
 	}
 
 	sessionID, err := uuid.NewV4()
 	if err != nil {
-		log.Fatal("Error generating UUID:", err)
+		log.Err(err).Msg("Error generating UUID")
 	}
 
 	return map[string]interface{}{
@@ -532,7 +587,7 @@ func signMessage(header, parentHeader, metadata, content map[string]interface{},
 	for _, part := range []map[string]interface{}{header, parentHeader, metadata, content} {
 		data, err := json.Marshal(part)
 		if err != nil {
-			log.Fatal("Error marshaling JSON:", err)
+			log.Err(err).Msg("Error marshaling JSON")
 		}
 		h.Write(data)
 	}
@@ -541,28 +596,312 @@ func signMessage(header, parentHeader, metadata, content map[string]interface{},
 
 func sendMessage(conn *websocket.Conn, message JupyterMessage) {
 	if err := conn.WriteJSON(message); err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error writing message")
 	}
 }
 
 func receiveMessage(conn *websocket.Conn) JupyterMessage {
 	var response JupyterMessage
 	if err := conn.ReadJSON(&response); err != nil {
-		log.Fatal(err)
+		log.Err(err).Msg("Error reading message")
 	}
 
 	return response
 }
 
-// dummyResponseWriter is a minimal implementation of http.ResponseWriter
-type dummyResponseWriter struct{}
+func listFilesHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	targetPath := dirPath
 
-func (d *dummyResponseWriter) Header() http.Header {
-	return make(http.Header)
+	// supports both listFiles and listFiles/{path}
+	if customPath, ok := vars["path"]; ok && customPath != "" {
+		// clean the path to prevent directory traversal attacks
+		customPath = filepath.Clean("/" + customPath)
+		targetPath = filepath.Join(dirPath, customPath)
+	}
+
+	files, err := os.ReadDir(targetPath)
+	if err != nil {
+		log.Error().Err(err).Msg("Unable to read directory")
+		http.Error(w, "Unable to read directory", http.StatusInternalServerError)
+		return
+	}
+
+	var metadataList []FileMetadata
+	for _, f := range files {
+		// Ignore if it is a symlink
+		if f.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+
+		fullPath := filepath.Join(targetPath, f.Name())
+		fileInfo, err := os.Stat(fullPath)
+		if err != nil {
+			log.Error().Err(err).Str("file", f.Name()).Msg("Unable to get file info")
+			continue
+		}
+
+		mimeType := mime.TypeByExtension(filepath.Ext(f.Name()))
+		if mimeType == "" {
+			mimeType = "application/octet-stream" // default MIME type
+		}
+
+		if fileInfo.IsDir() {
+			metadataList = append(metadataList, FileMetadata{
+				Name:        f.Name(),
+				Type:        dirType,
+				Filename:    f.Name(), // remove this after CP change since we have Name
+				Size:        fileInfo.Size(),
+				LastModTime: fileInfo.ModTime(),
+				MIMEType:    mimeType, // remove this after CP change since we have type
+			})
+		} else {
+			metadataList = append(metadataList, FileMetadata{
+				Name:        f.Name(),
+				Type:        fileType,
+				Filename:    f.Name(), // remove this after CP change since we have Name
+				Size:        fileInfo.Size(),
+				LastModTime: fileInfo.ModTime(),
+				MIMEType:    mimeType, // remove this after CP change since we have type
+			})
+		}
+	}
+
+	response, err := json.Marshal(metadataList)
+	if err != nil {
+		log.Error().Err(err).Msg("Unable to marshal response")
+		http.Error(w, "Unable to marshal response", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().Msg("List files successfully.\n")
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(response)
 }
 
-func (d *dummyResponseWriter) Write([]byte) (int, error) {
-	return 0, nil
+func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
+	// get custom path from URL
+	vars := mux.Vars(r)
+	targetPath := dirPath
+
+	// supports both uploadFile and uploadFile/{path}
+	if customPath, ok := vars["path"]; ok && customPath != "" {
+		// clean the path to prevent directory traversal attacks
+		customPath = filepath.Clean("/" + customPath)
+		targetPath = filepath.Join(dirPath, customPath)
+	}
+
+	err := r.ParseMultipartForm(250 << 20) // 250MB limit
+	if err != nil {
+		log.Error().Err(err).Msg("Unable to parse form")
+		http.Error(w, "Unable to parse form", http.StatusBadRequest)
+		return
+	}
+
+	files := r.MultipartForm.File["file"]
+	var metadataList []FileMetadata
+
+	for _, file := range files {
+		if err := processFile(file, &metadataList, targetPath); err != nil {
+			log.Error().Err(err).Str("filename", file.Filename).Send()
+			// choose to continue?
+		}
+	}
+
+	response, err := json.Marshal(metadataList)
+	if err != nil {
+		log.Error().Err(err).Msg("Unable to marshal response")
+		http.Error(w, "Unable to marshal response", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().Msg("Upload files successfully.\n")
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(response)
 }
 
-func (d *dummyResponseWriter) WriteHeader(int) {}
+// processFile handles the processing of each individual file and updates the metadata list.
+func processFile(file *multipart.FileHeader, metadataList *[]FileMetadata, path string) error {
+	src, err := file.Open()
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	// url decode filename
+	decodedFilename, err := url.QueryUnescape(file.Filename)
+	if err != nil {
+		log.Error().Err(err).Str("filename", file.Filename).Msg("Error decoding file name")
+	}
+	file.Filename = decodedFilename
+
+	// create the directory if it doesn't exist
+	os.MkdirAll(path, os.ModePerm)
+
+	dstPath := filepath.Join(path, filepath.Base(file.Filename))
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		return err
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return err
+	}
+
+	if fileInfo, err := dst.Stat(); err == nil {
+		*metadataList = append(*metadataList, FileMetadata{
+			Filename:    file.Filename,
+			Size:        fileInfo.Size(),
+			LastModTime: fileInfo.ModTime(),
+		})
+	} else {
+		return err
+	}
+
+	if err := os.Chmod(dstPath, 0777); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	encodedFilename := vars["filename"]
+
+	// URL decode the filename
+	decodedFilename, err := url.QueryUnescape(encodedFilename)
+	if err != nil {
+		log.Error().Err(err).Msg("Error decoding file name")
+		http.Error(w, "Error decoding file name", http.StatusBadRequest)
+		return
+	}
+
+	// Use the decoded filename for further processing
+	filename := filepath.Base(decodedFilename)
+
+	targetPath := dirPath
+	// supports both dowloadFile and dowloadFile/{path}/{fileName}
+	if customPath, ok := vars["path"]; ok && customPath != "" {
+		// clean the path to prevent directory traversal attacks
+		customPath = filepath.Clean("/" + customPath)
+		targetPath = filepath.Join(dirPath, customPath)
+	}
+
+	filePath := filepath.Join(targetPath, filename)
+
+	fileInfo, err := os.Lstat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logAndRespond(w, http.StatusNotFound, ErrCodeFileNotFound, "File not found")
+		} else {
+			logAndRespond(w, http.StatusInternalServerError, ErrCodeFileAccess, "Error accessing file")
+		}
+		return
+	}
+
+	if fileInfo.Mode()&os.ModeSymlink != 0 {
+		logAndRespond(w, http.StatusBadRequest, ErrCodeSymlinkNotAllowed, "Symlinks not allowed")
+		return
+	}
+
+	http.ServeFile(w, r, filePath)
+}
+
+func logAndRespond(w http.ResponseWriter, statusCode int, errCode, errMsg string) {
+	log.Error().Str("error_code", errCode).Msg(errMsg)
+	http.Error(w, fmt.Sprintf("%s: %s", errCode, errMsg), statusCode)
+}
+
+func deleteFileHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	encodedFilename := vars["filename"]
+
+	// URL decode the filename
+	decodedFilename, err := url.QueryUnescape(encodedFilename)
+	if err != nil {
+		log.Error().Err(err).Msg("Error decoding file name")
+		http.Error(w, "Error decoding file name", http.StatusBadRequest)
+		return
+	}
+
+	// Use the decoded filename in further processing
+	filename := filepath.Base(decodedFilename)
+	filePath := filepath.Join(dirPath, filename)
+
+	// Check if the file exists
+	_, err = os.Lstat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			logAndRespond(w, http.StatusNotFound, ErrCodeFileNotFound, "File not found")
+		} else {
+			logAndRespond(w, http.StatusInternalServerError, ErrCodeFileAccess, "Error accessing file")
+		}
+		return
+	}
+
+	// File exists, proceed with deletion
+	err = os.Remove(filePath)
+	if err != nil {
+		log.Error().Err(err).Msg(fmt.Sprintf("Error deleting file %s", filename))
+		http.Error(w, "Error deleting file", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().Msg(fmt.Sprintf("File %s deleted successfully.\n", filename))
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, "ok")
+}
+
+func getFileHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	encodedFilename := vars["filename"]
+
+	// URL decode the filename
+	decodedFilename, err := url.QueryUnescape(encodedFilename)
+	if err != nil {
+		log.Error().Err(err).Msg("Error decoding file name")
+		http.Error(w, "Error decoding file name", http.StatusBadRequest)
+		return
+	}
+
+	// Use the decoded filename in further processing
+	filename := filepath.Base(decodedFilename)
+	filePath := filepath.Join(dirPath, filename)
+
+	// if file exists, retrieve file information using os.Stat
+	fileInfo, err := os.Lstat(filePath)
+	// handle not found or other errors
+	if err != nil {
+		if os.IsNotExist(err) {
+			logAndRespond(w, http.StatusNotFound, ErrCodeFileNotFound, "File not found")
+		} else {
+			logAndRespond(w, http.StatusInternalServerError, ErrCodeFileAccess, "Error accessing file")
+		}
+		return
+	}
+
+	mimeType := mime.TypeByExtension(filepath.Ext(filename))
+	if mimeType == "" {
+		mimeType = "application/octet-stream" // default MIME type
+	}
+
+	fileMetadata := FileMetadata{
+		Filename:    filename,
+		Size:        fileInfo.Size(),
+		LastModTime: fileInfo.ModTime(),
+		MIMEType:    mimeType,
+	}
+
+	response, err := json.Marshal(fileMetadata)
+	if err != nil {
+		log.Error().Err(err).Msg("Unable to marshal response")
+		http.Error(w, "Unable to marshal response", http.StatusInternalServerError)
+		return
+	}
+
+	log.Info().Msg(fmt.Sprintf("Get file %s successfully.\n", filename))
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(response)
+}
