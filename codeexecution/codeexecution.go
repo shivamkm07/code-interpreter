@@ -59,14 +59,14 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	code, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Err(err).Msg("Error reading request body")
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error reading request body"+err.Error())
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error reading request body"+err.Error(), true)
 	}
 
 	// get the kernelId
 	kernelId, sessionId, err := jupyterservices.CheckKernels("")
 	if err != nil {
 		log.Err(err).Msg("Error checking kernels")
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error checking kernels"+err.Error())
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error checking kernels"+err.Error(), true)
 	}
 
 	// This is just for testing purposes
@@ -81,7 +81,7 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(code, &codeString)
 	if err != nil {
 		log.Err(err).Msg("Error unmarshaling JSON")
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error unmarshaling JSON"+err.Error())
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error unmarshaling JSON"+err.Error(), true)
 	}
 
 	// execute the code
@@ -91,9 +91,9 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	jsonResponse, err := json.Marshal(response)
 	if err != nil {
 		log.Err(err).Msg("Error marshaling JSON")
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error marshaling JSON"+err.Error())
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error marshaling JSON"+err.Error(), true)
 	}
-	util.SendHTTPResponse(w, http.StatusOK, string(jsonResponse))
+	util.SendHTTPResponse(w, http.StatusOK, string(jsonResponse), false)
 }
 
 func ExecuteCode(kernelId, sessionId, code string) ExecutionResponse {

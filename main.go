@@ -69,17 +69,17 @@ func initializeJupyter(w http.ResponseWriter, r *http.Request) {
 	_, _, err := jupyterservices.CheckKernels("")
 	if err != nil {
 		log.Err(err).Msg("Failed to check kernels")
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error checking kernels"+err.Error())
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error checking kernels"+err.Error(), true)
 	}
-	util.SendHTTPResponse(w, http.StatusOK, "jupyter initialized with token: "+token)
+	util.SendHTTPResponse(w, http.StatusOK, "jupyter initialized with token: "+token, true)
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	if !lastCodeHealthCheck {
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "unhealthy exec code failed")
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "unhealthy exec code failed", true)
 		return
 	}
-	util.SendHTTPResponse(w, http.StatusOK, "healthy")
+	util.SendHTTPResponse(w, http.StatusOK, "healthy", true)
 }
 
 func periodicCodeExecution() {

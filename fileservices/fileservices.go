@@ -27,13 +27,14 @@ type FileMetadata struct {
 }
 
 const (
-	DirPath                  = "/mnt/data"
 	FileType                 = "file"
 	DirType                  = "directory"
 	ErrCodeFileNotFound      = "ERR_FILE_NOT_FOUND"
 	ErrCodeFileAccess        = "ERR_FILE_ACCESS"
 	ErrCodeSymlinkNotAllowed = "ERR_SYMLINK_NOT_ALLOWED"
 )
+
+var DirPath string = "/mnt/data"
 
 func ListFilesHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -49,7 +50,7 @@ func ListFilesHandler(w http.ResponseWriter, r *http.Request) {
 	files, err := os.ReadDir(targetPath)
 	if err != nil {
 		log.Error().Err(err).Msg("Unable to read directory")
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error reading directory"+err.Error())
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error reading directory"+err.Error(), true)
 		return
 	}
 
@@ -96,12 +97,13 @@ func ListFilesHandler(w http.ResponseWriter, r *http.Request) {
 	response, err := json.Marshal(metadataList)
 	if err != nil {
 		log.Error().Err(err).Msg("Unable to marshal response")
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error marshaling response"+err.Error())
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error marshaling response"+err.Error(), true)
 		return
 	}
 
 	log.Info().Msg("List files successfully.\n")
-	util.SendHTTPResponse(w, http.StatusOK, string(response))
+	log.Info().Msg(fmt.Sprintf("List files successfully" + string(response)))
+	util.SendHTTPResponse(w, http.StatusOK, string(response), false)
 }
 
 func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +121,7 @@ func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseMultipartForm(250 << 20) // 250MB limit
 	if err != nil {
 		log.Error().Err(err).Msg("Unable to parse form")
-		util.SendHTTPResponse(w, http.StatusBadRequest, "error parsing form"+err.Error())
+		util.SendHTTPResponse(w, http.StatusBadRequest, "error parsing form"+err.Error(), true)
 		return
 	}
 
@@ -136,12 +138,12 @@ func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	response, err := json.Marshal(metadataList)
 	if err != nil {
 		log.Error().Err(err).Msg("Unable to marshal response")
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error marshaling response"+err.Error())
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error marshaling response"+err.Error(), true)
 		return
 	}
 
 	log.Info().Msg("Upload files successfully.\n")
-	util.SendHTTPResponse(w, http.StatusOK, string(response))
+	util.SendHTTPResponse(w, http.StatusOK, string(response), false)
 }
 
 // processFile handles the processing of each individual file and updates the metadata list.
@@ -199,7 +201,7 @@ func DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	decodedFilename, err := url.QueryUnescape(encodedFilename)
 	if err != nil {
 		log.Error().Err(err).Msg("Error decoding file name")
-		util.SendHTTPResponse(w, http.StatusBadRequest, "error decoding file name"+err.Error())
+		util.SendHTTPResponse(w, http.StatusBadRequest, "error decoding file name"+err.Error(), true)
 		return
 	}
 
@@ -236,7 +238,7 @@ func DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 func logAndRespond(w http.ResponseWriter, statusCode int, errCode, errMsg string) {
 	log.Error().Str("error_code", errCode).Msg(errMsg)
-	util.SendHTTPResponse(w, statusCode, fmt.Sprintf("%s: %s", errCode, errMsg))
+	util.SendHTTPResponse(w, statusCode, fmt.Sprintf("%s: %s", errCode, errMsg), true)
 }
 
 func DeleteFileHandler(w http.ResponseWriter, r *http.Request) {
@@ -247,7 +249,7 @@ func DeleteFileHandler(w http.ResponseWriter, r *http.Request) {
 	decodedFilename, err := url.QueryUnescape(encodedFilename)
 	if err != nil {
 		log.Error().Err(err).Msg("Error decoding file name")
-		util.SendHTTPResponse(w, http.StatusBadRequest, "error decoding file name"+err.Error())
+		util.SendHTTPResponse(w, http.StatusBadRequest, "error decoding file name"+err.Error(), true)
 		return
 	}
 
@@ -270,12 +272,12 @@ func DeleteFileHandler(w http.ResponseWriter, r *http.Request) {
 	err = os.Remove(filePath)
 	if err != nil {
 		log.Error().Err(err).Msg(fmt.Sprintf("Error deleting file %s", filename))
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error deleting file"+err.Error())
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error deleting file"+err.Error(), true)
 		return
 	}
 
 	log.Info().Msg(fmt.Sprintf("File %s deleted successfully.\n", filename))
-	util.SendHTTPResponse(w, http.StatusOK, "file deleted successfully")
+	util.SendHTTPResponse(w, http.StatusOK, "file deleted successfully", true)
 }
 
 func GetFileHandler(w http.ResponseWriter, r *http.Request) {
@@ -286,7 +288,7 @@ func GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	decodedFilename, err := url.QueryUnescape(encodedFilename)
 	if err != nil {
 		log.Error().Err(err).Msg("Error decoding file name")
-		util.SendHTTPResponse(w, http.StatusBadRequest, "error decoding file name"+err.Error())
+		util.SendHTTPResponse(w, http.StatusBadRequest, "error decoding file name"+err.Error(), true)
 		return
 	}
 
@@ -321,10 +323,10 @@ func GetFileHandler(w http.ResponseWriter, r *http.Request) {
 	response, err := json.Marshal(fileMetadata)
 	if err != nil {
 		log.Error().Err(err).Msg("Unable to marshal response")
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error marshaling response"+err.Error())
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error marshaling response"+err.Error(), true)
 		return
 	}
 
 	log.Info().Msg(fmt.Sprintf("Get file %s successfully.\n", filename))
-	util.SendHTTPResponse(w, http.StatusOK, string(response))
+	util.SendHTTPResponse(w, http.StatusOK, string(response), false)
 }
