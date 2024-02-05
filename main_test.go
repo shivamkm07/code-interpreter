@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/microsoft/jupyterpython/fileservices"
+	"github.com/microsoft/jupyterpython/jupyterservices"
 )
 
 func TestListFilesHandler(t *testing.T) {
@@ -40,7 +43,7 @@ func TestListFilesHandler(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	// Call the handler function
-	listFilesHandler(w, req)
+	fileservices.ListFilesHandler(w, req)
 
 	// Check the response status code
 	if w.Code != http.StatusOK {
@@ -48,7 +51,7 @@ func TestListFilesHandler(t *testing.T) {
 	}
 
 	// Parse the response body
-	var metadataList []FileMetadata
+	var metadataList []fileservices.FileMetadata
 	err := json.Unmarshal(w.Body.Bytes(), &metadataList)
 	if err != nil {
 		t.Fatalf("Failed to parse response body: %v", err)
@@ -65,7 +68,7 @@ func TestListFilesHandler(t *testing.T) {
 	for _, file := range testFiles {
 		found := false
 		for _, metadata := range metadataList {
-			if metadata.Name == file && metadata.Type == fileType {
+			if metadata.Name == file && metadata.Type == fileservices.FileType {
 				found = true
 				break
 			}
@@ -79,7 +82,7 @@ func TestListFilesHandler(t *testing.T) {
 	for _, dir := range testDirs {
 		found := false
 		for _, metadata := range metadataList {
-			if metadata.Name == dir && metadata.Type == dirType {
+			if metadata.Name == dir && metadata.Type == fileservices.DirType {
 				found = true
 				break
 			}
@@ -111,7 +114,7 @@ func TestCheckKernels(t *testing.T) {
 	http.DefaultClient.Transport = mockTransport
 
 	// Call the function under test
-	kernelId, sessionId := checkKernels("kernel1")
+	kernelId, sessionId := jupyterservices.CheckKernels("kernel1")
 
 	// Check the returned values
 	expectedKernelId := "kernel1"

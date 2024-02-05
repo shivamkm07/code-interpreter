@@ -1,0 +1,154 @@
+package jupyterservices
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"time"
+
+	"github.com/rs/zerolog/log"
+)
+
+// define kernel and session
+type Kernel struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	LastActivity   string `json:"last_activity"`
+	ExecutionState string `json:"execution_state"`
+	connections    int    `json:"connections"`
+}
+
+type Session struct {
+	ID       string   `json:"id"`
+	Path     string   `json:"path"`
+	Name     string   `json:"name"`
+	Type     string   `json:"type"`
+	Kernel   Kernel   `json:"kernel"`
+	Notebook Notebook `json:"notebook"`
+}
+
+type Notebook struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+const (
+	jupyterURL = "http://localhost:8888"
+	Timeout    = 60 * time.Second
+)
+
+var Token = "test"
+
+// check if there are any available kernels running and if so create a new session
+// return the kernelId and sessionId
+func CheckKernels(kernelId string) (string, string) {
+	fmt.Println("Checking for available kernels...")
+
+	url := fmt.Sprintf("%s/api/kernels?token=%s", jupyterURL, Token)
+	response, err := http.Get(url)
+	if err != nil {
+		log.Err(err).Msg("Error getting kernels")
+	}
+
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Err(err).Msg("Error reading response body")
+	}
+
+	var kernels []Kernel
+	err = json.Unmarshal(body, &kernels)
+	if err != nil {
+		log.Err(err).Msg("Error unmarshaling JSON")
+	}
+
+	fmt.Println(kernels)
+
+	var sessionId string
+	// if kernel exists, respond with kernel Id
+	if len(kernels) > 0 {
+		fmt.Printf("Kernel ID: %s\n", kernels[0].ID)
+		sessions := getSessions()
+
+		// return the first session or the session related to the passed kernelId
+		if len(sessions) > 0 {
+			if kernelId != "" {
+				for _, session := range sessions {
+					kernelInfo := session.Kernel
+					if kernelInfo.ID == kernelId {
+						sessionId = session.ID
+						// kernelId = kernelId --> not required since we already have the kernelId
+						fmt.Printf("Session ID: %s\n", session.ID)
+						break
+					}
+				}
+			} else {
+				sessionId = sessions[0].ID
+				kernelId = sessions[0].Kernel.ID
+			}
+		}
+	} else {
+		newSession := createSession()
+		fmt.Printf("Session ID: %s\n", newSession.ID)
+		sessionId = newSession.ID
+		kernelId = newSession.Kernel.ID
+	}
+
+	return kernelId, sessionId
+}
+
+// get sessions and return json object
+func getSessions() []Session {
+	fmt.Println("Listing available sessions:")
+
+	url := fmt.Sprintf("%s/api/sessions?token=%s", jupyterURL, Token)
+	response, err := http.Get(url)
+	if err != nil {
+		log.Err(err).Msg("Error getting sessions")
+	}
+
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Err(err).Msg("Error reading response body")
+	}
+
+	var sessions []Session
+	err = json.Unmarshal(body, &sessions)
+	if err != nil {
+		log.Err(err).Msg("Error unmarshaling JSON")
+	}
+
+	fmt.Println(sessions)
+
+	return sessions
+}
+
+func createSession() Session {
+	fmt.Println("Creating a new session...")
+
+	// payload for POST request to create session as io.Reader value
+	payload := bytes.NewBuffer([]byte(`{"path": "", "type": "notebook", "kernel": {"name": "python3"}}`))
+
+	url := fmt.Sprintf("%s/api/sessions?token=%s", jupyterURL, Token)
+	response, err := http.Post(url, "application/json", payload)
+	if err != nil {
+		log.Err(err).Msg("Error creating session")
+	}
+
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Err(err).Msg("Error reading response body")
+	}
+
+	var sessionInfo Session
+	err = json.Unmarshal(body, &sessionInfo)
+	if err != nil {
+		log.Err(err).Msg("Error unmarshaling JSON")
+	}
+
+	return sessionInfo
+}

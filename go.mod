@@ -1,4 +1,4 @@
-module example.com/m
+module github.com/microsoft/jupyterpython
 
 go 1.20
 
