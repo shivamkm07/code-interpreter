@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -24,7 +24,7 @@ func TestListFilesHandler(t *testing.T) {
 
 	for _, file := range testFiles {
 		filePath := filepath.Join(tempDir, file)
-		err := ioutil.WriteFile(filePath, []byte("test content"), 0644)
+		err := os.WriteFile(filePath, []byte("test content"), 0644)
 		if err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
@@ -110,11 +110,18 @@ func TestCheckKernels(t *testing.T) {
 		}
 	]`
 	mockURL := "http://example.com/api/kernels?token=12345"
-	mockTransport := &mockTransport{response: mockResponse}
-	http.DefaultClient.Transport = mockTransport
+	mockTransportVar := &mockTransport{response: mockResponse}
+	// http.DefaultClient.Transport = mockTransportVar
+	originalTransport := http.DefaultTransport
+	defer func() { http.DefaultTransport = originalTransport }()
+
+	http.DefaultTransport = mockTransportVar
 
 	// Call the function under test
-	kernelId, sessionId := jupyterservices.CheckKernels("kernel1")
+	kernelId, sessionId, err := jupyterservices.CheckKernels("kernel1")
+	if err != nil {
+		t.Fatalf("CheckKernels returned an error: %v", err)
+	}
 
 	// Check the returned values
 	expectedKernelId := "kernel1"
@@ -127,8 +134,8 @@ func TestCheckKernels(t *testing.T) {
 	}
 
 	// Check the HTTP request
-	if mockTransport.requestURL != mockURL {
-		t.Errorf("Expected request URL %s, got %s", mockURL, mockTransport.requestURL)
+	if mockTransportVar.requestURL != mockURL {
+		t.Errorf("Expected request URL %s, got %s", mockURL, mockTransportVar.requestURL)
 	}
 }
 
@@ -141,9 +148,11 @@ type mockTransport struct {
 
 func (t *mockTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	t.requestURL = req.URL.String()
-	t.requestBody, _ = ioutil.ReadAll(req.Body)
+	if req.Body != nil {
+		t.requestBody, _ = io.ReadAll(req.Body)
+	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
-		Body:       ioutil.NopCloser(strings.NewReader(t.response)),
+		Body:       io.NopCloser(strings.NewReader(t.response)),
 	}, nil
 }
