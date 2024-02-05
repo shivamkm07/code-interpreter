@@ -627,7 +627,7 @@ func logAndRespond(w http.ResponseWriter, statusCode int, errCode, errMsg string
 
 // unencodes each path segment, divided by a `/`. Also, sanitizes to start with / and not end with /
 // before: %C2%A5%C2%B7%C2%A3/te%24t/  (¥·£/te$t/)
-// after: /¥·£/te$t
+// after: /¥·£/te$t (backslashes on windows, due to filepath clean behavior)
 func unescapeAndCleanPath(path string) (string, error) {
 	pathSegments := strings.Split(path, "/")
 	unescapedPath := ""
@@ -648,11 +648,12 @@ func unescapeAndCleanPath(path string) (string, error) {
 }
 
 func cleanAndVerifyTargetPath(path string) (string, error) {
+	cleanedDirPath := filepath.Clean(dirPath)
 	cleaned := filepath.Clean(path)
-	if !strings.HasPrefix(cleaned, dirPath) {
-		return "", fmt.Errorf("failed to properly verify destination file path '%s'. filepath did not end up in the '%s' directory", cleaned, dirPath)
+	if !strings.HasPrefix(cleaned, cleanedDirPath) {
+		return "", fmt.Errorf("failed to properly verify destination file path '%s'. filepath did not end up in the '%s' directory", cleaned, cleanedDirPath)
 	}
-	totalSegments := len(strings.Split(cleaned, "/"))
+	totalSegments := len(strings.Split(cleaned[1:], string(filepath.Separator)))
 	if totalSegments > dirPathMaxDepth {
 		return "", fmt.Errorf("destination file path '%s' is too long. directory depth should not exceed '%v', was '%v'", cleaned, dirPathMaxDepth, totalSegments)
 	}
