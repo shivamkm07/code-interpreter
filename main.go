@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-    "strings"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
@@ -44,6 +44,7 @@ const (
 	dirPath                  = "/mnt/data"
 	fileType                 = "file"
 	dirType                  = "directory"
+	dirPathMaxDepth			 = 5
 )
 
 type AcaPoolPythonRuntimesResponse struct {
@@ -117,6 +118,12 @@ func uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		targetPath = filepath.Join(dirPath, decodedPath)
+		targetPath, err = cleanAndVerifyTargetPath(targetPath)
+		if err != nil {
+			log.Error().Err(err).Msg("Unable to clean and verify target path")
+			http.Error(w, "Unable to clean and verify target path", http.StatusBadRequest)
+			return
+		}
 	}
 
 	err := r.ParseMultipartForm(250 << 20) // 250MB limit
@@ -219,6 +226,12 @@ func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		targetPath = filepath.Join(dirPath, decodedPath)
+		targetPath, err = cleanAndVerifyTargetPath(targetPath)
+		if err != nil {
+			log.Error().Err(err).Msg("Unable to clean and verify target path")
+			http.Error(w, "Unable to clean and verify target path", http.StatusBadRequest)
+			return
+		}
 	}
 
 	filePath := filepath.Join(targetPath, filename)
@@ -346,6 +359,12 @@ func listFilesHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		targetPath = filepath.Join(dirPath, decodedPath)
+		targetPath, err = cleanAndVerifyTargetPath(targetPath)
+		if err != nil {
+			log.Error().Err(err).Msg("Unable to clean and verify target path")
+			http.Error(w, "Unable to clean and verify target path", http.StatusBadRequest)
+			return
+		}
 	}
 
 	files, err := os.ReadDir(targetPath)
@@ -626,6 +645,18 @@ func unescapeAndCleanPath(path string) (string, error) {
 	// clean the path to prevent directory traversal attacks
 	decodedPath := filepath.Clean(unescapedPath)
 	return decodedPath, nil
+}
+
+func cleanAndVerifyTargetPath(path string) (string, error) {
+	cleaned := filepath.Clean(path)
+	if !strings.HasPrefix(cleaned, dirPath) {
+		return "", fmt.Errorf("failed to properly verify destination file path '%s'. filepath did not end up in the '%s' directory", cleaned, dirPath)
+	}
+	totalSegments := len(strings.Split(cleaned, "/"))
+	if totalSegments > dirPathMaxDepth {
+		return "", fmt.Errorf("destination file path '%s' is too long. directory depth should not exceed '%v', was '%v'", cleaned, dirPathMaxDepth, totalSegments)
+	}
+	return cleaned, nil
 }
 
 func main() {
