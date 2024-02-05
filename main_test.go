@@ -11,8 +11,8 @@ import (
 
 type inputOutputStringTest struct {
     input string 
-	expectedStr string
-	expectedErr error
+    expectedStr string
+    expectedErr error
 }
 
 var unescapePathTest = []inputOutputStringTest{
@@ -23,7 +23,7 @@ var unescapePathTest = []inputOutputStringTest{
 }
 
 func TestUnescapeAndCleanPath(t *testing.T) {
-	for _, test := range unescapePathTest{
+    for _, test := range unescapePathTest {
         if actualStr, actualErr := unescapeAndCleanPath(test.input); actualStr != test.expectedStr || fmt.Sprintf("%s", actualErr) != fmt.Sprintf("%s", test.expectedErr) {
             t.Errorf("Output string %s not equal to expected %s, or output error '%s' not equal to expected '%s'.", actualStr, test.expectedStr, actualErr, test.expectedErr)
         }
