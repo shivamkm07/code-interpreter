@@ -50,4 +50,4 @@ RUN mkdir -p /mnt/data && chmod 777 /mnt/data
 # and that a signal proxy isn't spawned
 ENTRYPOINT ["/app/sessions_entrypoint.sh"]
 
-LABEL TlsEnabled=false
+LABEL TlsEnabled=true
