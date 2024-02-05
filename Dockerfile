@@ -15,7 +15,7 @@ COPY . .
 # Build the Go app
 RUN go build -o goclientapp .
 
-FROM jupyter/base-notebook:latest
+FROM quay.io/jupyter/base-notebook:latest
 
 WORKDIR /app
 
