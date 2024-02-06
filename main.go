@@ -57,7 +57,7 @@ func getToken() string {
 	token = os.Getenv("JUPYTER_TOKEN")
 	if token == "" {
 		token = "test"
-		log.Info().Msg("Token not found in environment variable, using default token %s" + token)
+		log.Info().Msg("Token not found in environment variable, using default token: " + token)
 	}
 	return token
 }
