@@ -1,0 +1,9 @@
+name: codeexecjupyter
+
+channels:
+  - c3i_test2/label/beta
+ 
+dependencies:
+  - anaconda=2023.03
+  - python=3.9
+  - blas=*=openblas

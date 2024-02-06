@@ -30,6 +30,7 @@ const (
 	FileType                 = "file"
 	DirType                  = "directory"
 	ErrCodeFileNotFound      = "ERR_FILE_NOT_FOUND"
+	ErrCodeDirNotFound       = "ERR_DIR_NOT_FOUND"
 	ErrCodeFileAccess        = "ERR_FILE_ACCESS"
 	ErrCodeSymlinkNotAllowed = "ERR_SYMLINK_NOT_ALLOWED"
 )
@@ -47,8 +48,12 @@ func ListFilesHandler(w http.ResponseWriter, r *http.Request) {
 
 	files, err := os.ReadDir(targetPath)
 	if err != nil {
-		log.Error().Err(err).Msg("Unable to read directory")
-		http.Error(w, "Unable to read directory", http.StatusInternalServerError)
+		if os.IsNotExist(err) {
+			logAndRespond(w, http.StatusNotFound, ErrCodeDirNotFound, "File path not found")
+		} else {
+			log.Error().Err(err).Msg("Unable to read directory")
+			http.Error(w, "Unable to read directory", http.StatusInternalServerError)
+		}
 		return
 	}
 
