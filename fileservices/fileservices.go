@@ -28,14 +28,13 @@ type FileMetadata struct {
 
 const (
 	FileType                 = "file"
+	DirPath                  = "/mnt/data"
 	DirType                  = "directory"
 	ErrCodeFileNotFound      = "ERR_FILE_NOT_FOUND"
 	ErrCodeDirNotFound       = "ERR_DIR_NOT_FOUND"
 	ErrCodeFileAccess        = "ERR_FILE_ACCESS"
 	ErrCodeSymlinkNotAllowed = "ERR_SYMLINK_NOT_ALLOWED"
 )
-
-var DirPath string = "/mnt/data"
 
 func ListFilesHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
