@@ -202,26 +202,27 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
 
 	u := url.URL{Scheme: "ws", Host: "localhost:8888", Path: "/api/kernels/" + kernelID + "/channels", RawQuery: "token=" + jupyterservices.Token}
-	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	ws, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	fmt.Printf("Connected to WebSocket %s\n", ws.RemoteAddr())
 	if err != nil {
 		log.Err(err).Msg("Error dialing WebSocket")
 		close(responseChan)
 		return responseChan
 	}
 
-	c.SetCloseHandler(func(code int, text string) error {
+	ws.SetCloseHandler(func(code int, text string) error {
 		log.Printf("WebSocket closed with code %d: %s\n", code, text)
 		log.Info().Msgf("WebSocket closed with code %d: %s\n", code, text)
 		onClose()
 		return nil
 	})
 
-	c.SetPingHandler(func(appData string) error {
+	ws.SetPingHandler(func(appData string) error {
 		log.Info().Msgf("Received ping: %s\n", appData)
 		return nil
 	})
 
-	c.SetPongHandler(func(appData string) error {
+	ws.SetPongHandler(func(appData string) error {
 		log.Info().Msgf("Received pong: %s\n", appData)
 		return nil
 	})
@@ -231,7 +232,7 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 
 		startTime := time.Now()
 		for {
-			_, message, err := c.ReadMessage()
+			_, message, err := ws.ReadMessage()
 
 			// print elapsed time since the start of this loop
 			log.Info().Msgf("Elapsed time: %s\n", time.Since(startTime))
@@ -239,7 +240,7 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 			// close the connection if we wait for more than timeout
 			if time.Since(startTime) > jupyterservices.Timeout {
 				log.Info().Msg("Timeout: No response received.")
-				c.Close()
+				ws.Close()
 				return
 			}
 			if err != nil {
@@ -257,13 +258,13 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 		}
 	}()
 
-	onOpen(c, sessionID, code)
+	onOpen(ws, sessionID, code)
 
 	go func() {
 		select {
 		case <-interruptSignal:
 			log.Info().Msg("Interrupt signal received. Closing WebSocket...")
-			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			err := ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			if err != nil {
 				log.Err(err).Msg("Error writing close message")
 			}
