@@ -23,7 +23,6 @@ import (
 var (
 	interrupt = make(chan os.Signal, 1)
 	wg        sync.WaitGroup
-	ws        *websocket.Conn
 )
 
 type ExecutionRequest struct {
@@ -203,10 +202,7 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
 
 	u := url.URL{Scheme: "ws", Host: "localhost:8888", Path: "/api/kernels/" + kernelID + "/channels", RawQuery: "token=" + jupyterservices.Token}
-	err := error(nil)
-	if ws == nil {
-		ws, _, err = websocket.DefaultDialer.Dial(u.String(), nil)
-	}
+	ws, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	fmt.Printf("Connected to WebSocket %s\n", ws.RemoteAddr())
 	if err != nil {
 		log.Err(err).Msg("Error dialing WebSocket")
