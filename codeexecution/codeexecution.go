@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,6 +17,7 @@ import (
 	"github.com/gofrs/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/microsoft/jupyterpython/jupyterservices"
+	"github.com/microsoft/jupyterpython/util"
 	"github.com/rs/zerolog/log"
 )
 
@@ -62,13 +63,18 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	// read code from the request body
 	lock.Lock()
 	defer lock.Unlock()
-	code, err := ioutil.ReadAll(r.Body)
+	code, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Err(err).Msg("Error reading request body")
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error reading request body"+err.Error(), true)
 	}
 
 	// get the kernelId
-	kernelId, sessionId := jupyterservices.CheckKernels("")
+	kernelId, sessionId, err := jupyterservices.CheckKernels("")
+	if err != nil {
+		log.Err(err).Msg("Error checking kernels")
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error checking kernels"+err.Error(), true)
+	}
 
 	// This is just for testing purposes
 	// if code == nil {
@@ -82,20 +88,19 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(code, &codeString)
 	if err != nil {
 		log.Err(err).Msg("Error unmarshaling JSON")
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error unmarshaling JSON"+err.Error(), true)
 	}
 
 	// execute the code
 	response := ExecuteCode(kernelId, sessionId, codeString.Code)
 
-	// return the response
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
 	// convert the response to JSON and return
 	jsonResponse, err := json.Marshal(response)
 	if err != nil {
 		log.Err(err).Msg("Error marshaling JSON")
+		util.SendHTTPResponse(w, http.StatusInternalServerError, "error marshaling JSON"+err.Error(), true)
 	}
-	w.Write(jsonResponse)
+	util.SendHTTPResponse(w, http.StatusOK, string(jsonResponse), false)
 }
 
 func ExecuteCode(kernelId, sessionId, code string) ExecutionResponse {
