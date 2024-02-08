@@ -83,8 +83,8 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func periodicCodeExecution() {
-	time.Sleep(60 * time.Second)
-	ticker := time.NewTicker(50 * time.Second)
+	time.Sleep(25 * time.Second)
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
 	sampleCode := "1+1"

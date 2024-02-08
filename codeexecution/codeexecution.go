@@ -24,6 +24,7 @@ import (
 var (
 	interrupt = make(chan os.Signal, 1)
 	wg        sync.WaitGroup
+	ws        *websocket.Conn
 )
 
 type ExecutionRequest struct {
@@ -41,7 +42,8 @@ type ExecutionResponse struct {
 }
 
 type DiagnosticInfo struct {
-	ExecutionDuration int `json:"executionDuration"`
+	ExecutionDuration int    `json:"executionDuration"`
+	MessageId         string `json:"messageId"`
 }
 
 // JupyterMessage represents a Jupyter message structure.
@@ -52,10 +54,15 @@ type JupyterMessage struct {
 	ParentHeader map[string]interface{} `json:"parent_header"`
 	Channel      string                 `json:"channel"`
 	BufferPaths  []string               `json:"buffer_paths"`
+	MessageId    string                 `json:"msg_id"`
 }
+
+var lock sync.Mutex
 
 func Execute(w http.ResponseWriter, r *http.Request) {
 	// read code from the request body
+	lock.Lock()
+	defer lock.Unlock()
 	code, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Err(err).Msg("Error reading request body")
@@ -122,6 +129,7 @@ func ExecuteCode(kernelId, sessionId, code string) ExecutionResponse {
 func onMessage(message []byte) map[string]interface{} {
 	fmt.Printf("Received message: %s\n", message)
 	var msg map[string]interface{}
+	var content map[string]interface{}
 	err := json.Unmarshal(message, &msg)
 	if err != nil {
 		log.Err(err).Msg("Error unmarshaling JSON")
@@ -131,22 +139,22 @@ func onMessage(message []byte) map[string]interface{} {
 
 	switch msgType {
 	case "stream":
-		content := msg["content"].(map[string]interface{})
+		content = msg["content"].(map[string]interface{})
 		if content["name"].(string) == "stdout" {
 			fmt.Printf("\n\nSTDOUT: %s\n", content["text"])
-			// return content["text"].(string)
 		} else if content["name"].(string) == "stderr" {
 			fmt.Printf("\n\nSTDERR: %s\n", content["text"])
 		}
-		return content
 	case "execute_result":
-		content := msg["content"].(map[string]interface{})
-		return content
+		content = msg["content"].(map[string]interface{})
 	case "display_data":
-		content := msg["content"].(map[string]interface{})
-		return content
+		content = msg["content"].(map[string]interface{})
 	case "execute_reply":
-		content := msg["content"].(map[string]interface{})
+		content = msg["content"].(map[string]interface{})
+	}
+
+	if content != nil {
+		content["parent_header"] = msg["parent_header"]
 		return content
 	}
 
@@ -159,11 +167,14 @@ func onError(err error) {
 
 func onClose() {
 	log.Info().Msg("Closing WebSocket...")
-	// TODO: Commenting for now, since the Wg.Done() is adding negative value to the counter even when there are no goroutines running
-	// wg.Done()
+	if ws != nil {
+		ws.Close()
+		ws = nil
+	}
 }
 
-func onOpen(ws *websocket.Conn, sessionId string, code string) {
+func onOpen(ws *websocket.Conn, sessionId string, code string) []byte {
+	var jsonMessage []byte
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -190,6 +201,10 @@ func onOpen(ws *websocket.Conn, sessionId string, code string) {
 			"signature":     signature,
 		}
 
+		// print the message in JSON format
+		jsonMessage, _ = json.Marshal(message)
+		fmt.Printf("JSON message: %s\n", jsonMessage)
+
 		err := ws.WriteJSON(message)
 		if err != nil {
 			log.Err(err).Msg("Error writing message")
@@ -197,6 +212,7 @@ func onOpen(ws *websocket.Conn, sessionId string, code string) {
 	}()
 
 	wg.Wait()
+	return jsonMessage
 }
 
 // connect via websocket and execute code and return the result
@@ -207,27 +223,32 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
 
 	u := url.URL{Scheme: "ws", Host: "localhost:8888", Path: "/api/kernels/" + kernelID + "/channels", RawQuery: "token=" + jupyterservices.Token}
-	c, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
-	if err != nil {
-		log.Err(err).Msg("Error dialing WebSocket")
-		close(responseChan)
-		return responseChan
+	err := error(nil)
+	if ws == nil {
+		ws, _, err = websocket.DefaultDialer.Dial(u.String(), nil)
+		if err != nil {
+			log.Err(err).Msg("Error dialing WebSocket")
+			close(responseChan)
+			return responseChan
+		}
+		fmt.Printf("Connected to WebSocket %s\n", ws.RemoteAddr())
 	}
 
-	c.SetCloseHandler(func(code int, text string) error {
-		log.Printf("WebSocket closed with code %d: %s\n", code, text)
+	ws.SetCloseHandler(func(code int, text string) error {
+		fmt.Println("WebSocket closed with code", code, text)
 		log.Info().Msgf("WebSocket closed with code %d: %s\n", code, text)
 		onClose()
-		return nil
+		return err
 	})
 
-	c.SetPingHandler(func(appData string) error {
+	ws.SetPingHandler(func(appData string) error {
 		log.Info().Msgf("Received ping: %s\n", appData)
-		return nil
+		return ws.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(10*time.Second))
 	})
 
-	c.SetPongHandler(func(appData string) error {
+	ws.SetPongHandler(func(appData string) error {
 		log.Info().Msgf("Received pong: %s\n", appData)
+		ws.NetConn().Write([]byte("pong"))
 		return nil
 	})
 
@@ -236,7 +257,14 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 
 		startTime := time.Now()
 		for {
-			_, message, err := c.ReadMessage()
+			_, message, err := ws.ReadMessage()
+			if err != nil {
+				onError(err)
+				ws = nil
+				return
+			}
+			parsedMessage := make(map[string]interface{})
+			json.Unmarshal(message, &parsedMessage)
 
 			// print elapsed time since the start of this loop
 			log.Info().Msgf("Elapsed time: %s\n", time.Since(startTime))
@@ -244,31 +272,29 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 			// close the connection if we wait for more than timeout
 			if time.Since(startTime) > jupyterservices.Timeout {
 				log.Info().Msg("Timeout: No response received.")
-				c.Close()
-				return
-			}
-			if err != nil {
-				if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-					log.Err(err).Msg("Error reading message")
+				if ws != nil {
+					ws.Close()
+					ws = nil
 				}
 				return
 			}
 			response := onMessage(message)
 			if response != nil {
-				result := convertToExecutionResult(response, startTime)
-				responseChan <- result
-				break
+				if response["parent_header"] != nil && response["parent_header"].(map[string]interface{})["msg_type"].(string) == "execute_request" {
+					result := convertToExecutionResult(response, startTime)
+					responseChan <- result
+				}
 			}
 		}
 	}()
 
-	onOpen(c, sessionID, code)
+	onOpen(ws, sessionID, code)
 
 	go func() {
 		select {
 		case <-interruptSignal:
 			log.Info().Msg("Interrupt signal received. Closing WebSocket...")
-			err := c.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			err := ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 			if err != nil {
 				log.Err(err).Msg("Error writing close message")
 			}
@@ -305,11 +331,12 @@ func convertToExecutionResult(response map[string]interface{}, startTime time.Ti
 	if response["data"] != nil {
 		// iterate over the data and get the value of different types of data and keep adding to the result
 		for _, value := range response["data"].(map[string]interface{}) {
-			result.Result += value.(string) + "; "
+			result.Result += value.(string)
 		}
 	}
 
 	result.DiagnosticInfo.ExecutionDuration = int(time.Since(startTime).Seconds())
+	result.DiagnosticInfo.MessageId = response["parent_header"].(map[string]interface{})["msg_id"].(string)
 
 	return result
 }
