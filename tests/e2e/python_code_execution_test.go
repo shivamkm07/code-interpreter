@@ -5,8 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"mime/multipart"
 	"net/http"
 	"testing"
+	"time"
+
+	"os"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -23,6 +28,15 @@ type ExecutionResponse struct {
 
 type DiagnosticInfo struct {
 	ExecutionDuration int `json:"executionDuration"`
+}
+
+type FileMetadata struct {
+	Name        string    `json:"name"`
+	Type        string    `json:"type"`
+	Filename    string    `json:"filename"` // remove this after CP change since we have name
+	Size        int64     `json:"size"`
+	LastModTime time.Time `json:"last_modified_time"`
+	MIMEType    string    `json:"mime_type"` // remove this after CP change since we have type
 }
 
 func TestExecuteSumCode(t *testing.T) {
@@ -120,19 +134,6 @@ func TestExecuteMatplotlibCode(t *testing.T) {
 	assert.Equal(t, 0, executionResponse.Hresult, "Hresult is 0")
 }
 
-// Write test for all of this route shown below
-
-//r.HandleFunc("/", initializeJupyter).Methods("GET")
-//r.HandleFunc("/health", healthHandler).Methods("GET")
-//r.HandleFunc("/listfiles", fileservices.ListFilesHandler).Methods("GET")
-//r.HandleFunc("/listfiles/{path:.*}", fileservices.ListFilesHandler).Methods("GET")
-//r.HandleFunc("/upload", fileservices.UploadFileHandler).Methods("POST")
-//r.HandleFunc("/upload/{path:.*}", fileservices.UploadFileHandler).Methods("POST")
-//r.HandleFunc("/download/{filename}", fileservices.DownloadFileHandler).Methods("GET")
-//r.HandleFunc("/download/{path:.*}/{filename}", fileservices.DownloadFileHandler).Methods("GET")
-//r.HandleFunc("/delete/{filename}", fileservices.DeleteFileHandler).Methods("DELETE")
-//r.HandleFunc("/get/{filename}", fileservices.GetFileHandler).Methods("GET")
-
 func TestInitializeJupyter(t *testing.T) {
 	var httpGetRequest = "http://localhost:8080/"
 	response, err := http.Get(httpGetRequest)
@@ -144,7 +145,6 @@ func TestInitializeJupyter(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	// check if response body contains "Jupyter initialized with token, test."
 	assert.Equal(t, "{\"message\": \"Jupyter initialized with token, test.\"}", string(body), "Response body contains Jupyter initialized with token, test.")
 }
 
@@ -159,7 +159,6 @@ func TestHealthHandler(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	// check if response body contains "Jupyter initialized with token, test."
 	assert.Equal(t, "Healthy\n", string(body), "Response body contains 'Healthy\n'")
 }
 
@@ -174,17 +173,40 @@ func TestListFilesHandler(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	// check if response body contains "Jupyter initialized with token, test."
 	assert.Equal(t, "null", string(body), "Response body contains null")
 }
 
-// TODO: fix this test to upload a file
 func TestUploadFileHandler(t *testing.T) {
 	var httpPostRequest = "http://localhost:8080/upload"
-	// upload a file as request body
-	var httpPostBody = "file"
+	// Open the file
+	file, err := os.Open("../e2e/files/test.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
 
-	response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
+	// Create a buffer to store our request body
+	reqBody := &bytes.Buffer{}
+
+	// Create a multipart writer
+	writer := multipart.NewWriter(reqBody)
+
+	// Create a form file writer for our file field
+	formFile, err := writer.CreateFormFile("file", file.Name())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Copy the file into the form file writer
+	_, err = io.Copy(formFile, file)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Close the multipart writer to finalize the body
+	writer.Close()
+
+	response, err := http.Post(httpPostRequest, writer.FormDataContentType(), reqBody)
 
 	// Assert no error
 	assert.Nil(t, err, "No error")
@@ -193,11 +215,13 @@ func TestUploadFileHandler(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	// check if response body contains "Jupyter initialized with token, test."
-	assert.Equal(t, "null", string(body), "Response body contains null")
+	var metadataList []FileMetadata
+	err = json.Unmarshal(body, &metadataList)
+
+	assert.Equal(t, "test.json", metadataList[0].Filename, "Filename is test.json")
+	assert.Greater(t, metadataList[0].Size, int64(0), "Size is greater than 0")
 }
 
-// TODO: fix this test to download a file
 func TestDownloadFileHandlerFileNotFound(t *testing.T) {
 	var httpGetRequest = "http://localhost:8080/download/file"
 	response, err := http.Get(httpGetRequest)
@@ -209,15 +233,12 @@ func TestDownloadFileHandlerFileNotFound(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	// check if response body contains "Jupyter initialized with token, test."
 	assert.Equal(t, "ERR_FILE_NOT_FOUND: File not found\n", string(body), "Response body contains ERR_FILE_NOT_FOUND")
 }
 
-// TODO: Add test to delete a file which is uploaded
-func TestDeleteFileHandlerFileNotFound(t *testing.T) {
-	var httpDeleteRequest = "http://localhost:8080/delete/file"
-	request, err := http.NewRequest("DELETE", httpDeleteRequest, nil)
-	response, err := http.DefaultClient.Do(request)
+func TestDownloadFileHandlerFileFound(t *testing.T) {
+	var httpGetRequest = "http://localhost:8080/download/test.json"
+	response, err := http.Get(httpGetRequest)
 
 	// Assert no error
 	assert.Nil(t, err, "No error")
@@ -226,8 +247,7 @@ func TestDeleteFileHandlerFileNotFound(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	// check if response body contains "Jupyter initialized with token, test."
-	assert.Equal(t, "ERR_FILE_NOT_FOUND: File not found\n", string(body), "Response body contains ERR_FILE_NOT_FOUND")
+	assert.Equal(t, "{\r\n    \"name\": \"jquery.iframe-transport.js\",\r\n    \"url\": \"https://raw.github.com/blueimp/jQuery-File-Upload/master/js/jquery.iframe-transport.js\"\r\n}", string(body), "Response body contains file content")
 }
 
 func TestGetFileHandlerFileNotFound(t *testing.T) {
@@ -241,8 +261,103 @@ func TestGetFileHandlerFileNotFound(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	// check if response body contains "Jupyter initialized with token, test."
 	assert.Equal(t, "ERR_FILE_NOT_FOUND: File not found\n", string(body), "Response body contains ERR_FILE_NOT_FOUND")
+}
+
+func TestGetFileHandlerFileFound(t *testing.T) {
+	var httpGetRequest = "http://localhost:8080/get/test.json"
+	response, err := http.Get(httpGetRequest)
+
+	// Assert no error
+	assert.Nil(t, err, "No error")
+
+	// Read the response body
+	body, err := io.ReadAll(response.Body)
+	assert.Nil(t, err, "No error")
+
+	var metadataList FileMetadata
+	err = json.Unmarshal(body, &metadataList)
+
+	assert.Equal(t, "test.json", metadataList.Filename, "Filename is test.json")
+	assert.Greater(t, metadataList.Size, int64(0), "Size is greater than 0")
+}
+
+func TestListFilesHandlerWithPathReturnsNoPath(t *testing.T) {
+	var httpGetRequest = "http://localhost:8080/listfiles/wrongpath"
+	response, err := http.Get(httpGetRequest)
+
+	// Assert no error
+	assert.Nil(t, err, "No error")
+
+	// Read the response body
+	body, err := io.ReadAll(response.Body)
+	assert.Nil(t, err, "No error")
+
+	assert.Equal(t, "ERR_DIR_NOT_FOUND: File path not found\n", string(body), "Response body contains ERR_DIR_NOT_FOUND")
+}
+
+func TestListFilesHandlerListFiles(t *testing.T) {
+	var httpGetRequest = "http://localhost:8080/listfiles"
+	response, err := http.Get(httpGetRequest)
+
+	// Assert no error
+	assert.Nil(t, err, "No error")
+
+	// Read the response body
+	body, err := io.ReadAll(response.Body)
+	assert.Nil(t, err, "No error")
+
+	var metadataList []FileMetadata
+	err = json.Unmarshal(body, &metadataList)
+
+	assert.Equal(t, "test.json", metadataList[0].Filename, "Filename is test.json")
+	assert.Greater(t, metadataList[0].Size, int64(0), "Size is greater than 0")
+}
+
+func TestUploadFileHandlerWithPath(t *testing.T) {
+	var httpPostRequest = "http://localhost:8080/upload/path"
+	// Open the file
+	file, err := os.Open("../e2e/files/file.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	// Create a buffer to store our request body
+	reqBody := &bytes.Buffer{}
+
+	// Create a multipart writer
+	writer := multipart.NewWriter(reqBody)
+
+	// Create a form file writer for our file field
+	formFile, err := writer.CreateFormFile("file", file.Name())
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Copy the file into the form file writer
+	_, err = io.Copy(formFile, file)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Close the multipart writer to finalize the body
+	writer.Close()
+
+	response, err := http.Post(httpPostRequest, writer.FormDataContentType(), reqBody)
+
+	// Assert no error
+	assert.Nil(t, err, "No error")
+
+	// Read the response body
+	body, err := io.ReadAll(response.Body)
+	assert.Nil(t, err, "No error")
+
+	var metadataList []FileMetadata
+	err = json.Unmarshal(body, &metadataList)
+
+	assert.Equal(t, "file.txt", metadataList[0].Filename, "Filename is test.json")
+	assert.Greater(t, metadataList[0].Size, int64(0), "Size is greater than 0")
 }
 
 func TestListFilesHandlerWithPath(t *testing.T) {
@@ -256,17 +371,16 @@ func TestListFilesHandlerWithPath(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	// check if response body contains "Jupyter initialized with token, test."
-	assert.Equal(t, "ERR_DIR_NOT_FOUND: File path not found\n", string(body), "Response body contains ERR_DIR_NOT_FOUND")
+	var metadataList []FileMetadata
+	err = json.Unmarshal(body, &metadataList)
+
+	assert.Equal(t, "file.txt", metadataList[0].Filename, "Filename is test.json")
+	assert.Greater(t, metadataList[0].Size, int64(0), "Size is greater than 0")
 }
 
-// TODO: fix this test to upload a file
-func TestUploadFileHandlerWithPath(t *testing.T) {
-	var httpPostRequest = "http://localhost:8080/upload/path"
-	// upload a file as request body
-	var httpPostBody = "file"
-
-	response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
+func TestDownloadFileHandlerWithPath(t *testing.T) {
+	var httpGetRequest = "http://localhost:8080/download/path/file.txt"
+	response, err := http.Get(httpGetRequest)
 
 	// Assert no error
 	assert.Nil(t, err, "No error")
@@ -275,6 +389,21 @@ func TestUploadFileHandlerWithPath(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	// check if response body contains "Jupyter initialized with token, test."
-	assert.Equal(t, "Unable to parse form\n", string(body), "Response body contains ERR_DIR_NOT_FOUND")
+	assert.Equal(t, "test", string(body), "Response body contains test")
+}
+
+// TODO: Add test to delete a file which is uploaded
+func TestDeleteFileHandlerFileNotFound(t *testing.T) {
+	var httpDeleteRequest = "http://localhost:8080/delete/test.json"
+	request, err := http.NewRequest("DELETE", httpDeleteRequest, nil)
+	response, err := http.DefaultClient.Do(request)
+
+	// Assert no error
+	assert.Nil(t, err, "No error")
+
+	// Read the response body
+	body, err := io.ReadAll(response.Body)
+	assert.Nil(t, err, "No error")
+
+	assert.Equal(t, "ok", string(body), "Response body contains ok")
 }
