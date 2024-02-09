@@ -22,39 +22,55 @@ import (
 )
 
 var (
-	interrupt = make(chan os.Signal, 1)
-	wg        sync.WaitGroup
-	ws        *websocket.Conn
+	interrupt    = make(chan os.Signal, 1)
+	wg           sync.WaitGroup
+	ws           *websocket.Conn
+	requestMsgID string
 )
 
 type ExecutionRequest struct {
 	Code string `json:"code"`
 }
 
+type ExecutePlainTextResultErrorCode int
+
+const (
+	Success ExecutePlainTextResultErrorCode = iota
+	Generic
+	KernelRestarted
+	ExecutionAborted
+)
+
+type ExecutePlainTextResult struct {
+	Success                       bool                            `json:"success"`
+	ErrorCode                     ExecutePlainTextResultErrorCode `json:"errorCode"`
+	TextPlain                     string                          `json:"textPlain,omitempty"`
+	TextOfficePy                  string                          `json:"textOfficePy,omitempty"`
+	ImageBase64Data               string                          `json:"imageBase64Data,omitempty"`
+	ErrorName                     string                          `json:"errorName,omitempty"`
+	ErrorMessage                  string                          `json:"errorMessage,omitempty"`
+	ErrorTraceback                string                          `json:"errorTraceback,omitempty"`
+	Stderr                        string                          `json:"stderr,omitempty"`
+	Stdout                        string                          `json:"stdout,omitempty"`
+	ExecutionDurationMilliseconds int                             `json:"executionDurationMilliseconds"`
+}
+
 type ExecutionResponse struct {
-	Hresult        int            `json:"hresult"`
-	Result         string         `json:"result"`
-	ErrorName      string         `json:"error_name"`
-	ErrorMessage   string         `json:"error_message"`
-	Stdout         string         `json:"stdout"`
-	Stderr         string         `json:"stderr"`
-	DiagnosticInfo DiagnosticInfo `json:"diagnosticInfo"`
+	HResult         int                       `json:"hresult"`
+	Result          *json.RawMessage          `json:"result"`
+	ErrorName       string                    `json:"error_name"`
+	ErrorMessage    string                    `json:"error_message"`
+	ErrorStackTrace string                    `json:"error_stack_trace"`
+	Stdout          string                    `json:"stdout"`
+	Stderr          string                    `json:"stderr"`
+	DiagnosticInfo  ExecuteCodeDiagnosticInfo `json:"diagnosticInfo"`
+	//ServiceData     *json.RawMessage          `json:"serviceData"`
+	ApproximateSize int `json:"-"`
 }
 
-type DiagnosticInfo struct {
-	ExecutionDuration int    `json:"executionDuration"`
-	MessageId         string `json:"messageId"`
-}
-
-// JupyterMessage represents a Jupyter message structure.
-type JupyterMessage struct {
-	Header       map[string]interface{} `json:"header"`
-	Metadata     map[string]interface{} `json:"metadata"`
-	Content      map[string]interface{} `json:"content"`
-	ParentHeader map[string]interface{} `json:"parent_header"`
-	Channel      string                 `json:"channel"`
-	BufferPaths  []string               `json:"buffer_paths"`
-	MessageId    string                 `json:"msg_id"`
+type ExecuteCodeDiagnosticInfo struct {
+	ExecutionDuration int `json:"executionDuration"`
+	//MessageId         string `json:"messageId"`
 }
 
 var lock sync.Mutex
@@ -116,8 +132,8 @@ func ExecuteCode(kernelId, sessionId, code string) ExecutionResponse {
 	case <-time.After(60 * time.Second): // Timeout after 10 seconds
 		fmt.Println("Timeout: No response received.")
 		return ExecutionResponse{
-			Hresult:      1,
-			Result:       "",
+			HResult:      1,
+			Result:       nil,
 			ErrorName:    "Timeout",
 			ErrorMessage: "No response received",
 			Stdout:       "",
@@ -126,7 +142,7 @@ func ExecuteCode(kernelId, sessionId, code string) ExecutionResponse {
 	}
 }
 
-func onMessage(message []byte) map[string]interface{} {
+func onMessage_tbd(message []byte) map[string]interface{} {
 	fmt.Printf("Received message: %s\n", message)
 	var msg map[string]interface{}
 	var content map[string]interface{}
@@ -159,6 +175,34 @@ func onMessage(message []byte) map[string]interface{} {
 	}
 
 	return nil
+}
+
+func onMessage(message []byte) *ExecutePlainTextResult {
+	var msg map[string]interface{}
+	err := json.Unmarshal(message, &msg)
+	if err != nil {
+		log.Err(err).Msg("Error unmarshaling JSON")
+	}
+
+	// get parent_header from the message
+	parentHeader := msg["parent_header"].(map[string]interface{})
+
+	// get msg_id from the parent_header
+	msgID := parentHeader["msg_id"].(string)
+
+	if msgID != requestMsgID {
+		return nil
+	}
+
+	// call HandleAndProcessMessage
+	m := HandleAndProcessMessage(message, msgID)
+
+	// if ExecuteResultAlreadySet is false then return nil
+	if !m.ExecuteResultAlreadySet {
+		return nil
+	}
+
+	return &m.ExecuteResult
 }
 
 func onError(err error) {
@@ -276,14 +320,16 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 					ws.Close()
 					ws = nil
 				}
-				return
+				break
 			}
 			response := onMessage(message)
 			if response != nil {
-				if response["parent_header"] != nil && response["parent_header"].(map[string]interface{})["msg_type"].(string) == "execute_request" {
-					result := convertToExecutionResult(response, startTime)
-					responseChan <- result
-				}
+				// if response["parent_header"] != nil && response["parent_header"].(map[string]interface{})["msg_type"].(string) == "execute_request" {
+				// 	result := convertToExecutionResult(response, startTime)
+				// 	responseChan <- result
+				// }
+				result := ConvertJupyterPlainResultToExecuteCodeResult(*response, startTime)
+				responseChan <- result
 			}
 		}
 	}()
@@ -305,7 +351,7 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 }
 
 // func to convert response to ExecutionResult
-func convertToExecutionResult(response map[string]interface{}, startTime time.Time) ExecutionResponse {
+func convertToExecutionResult_tbd(response map[string]interface{}, startTime time.Time) ExecutionResponse {
 	var result ExecutionResponse
 	/* if response is in the format - "data": {
 		"text/plain": "25"
@@ -321,7 +367,6 @@ func convertToExecutionResult(response map[string]interface{}, startTime time.Ti
 	// the Stdout should be "Hello Earth" and Result should be stdout
 	if response["name"] == "stdout" {
 		result.Stdout = response["text"].(string)
-		result.Result = "stdout"
 	}
 	if response["status"] == "error" {
 		//result.Result = response["traceback"].([]interface{})[0].(string)
@@ -331,12 +376,13 @@ func convertToExecutionResult(response map[string]interface{}, startTime time.Ti
 	if response["data"] != nil {
 		// iterate over the data and get the value of different types of data and keep adding to the result
 		for _, value := range response["data"].(map[string]interface{}) {
-			result.Result += value.(string)
+			result.Result = &json.RawMessage{}
+			*result.Result = []byte(value.(string))
 		}
 	}
 
 	result.DiagnosticInfo.ExecutionDuration = int(time.Since(startTime).Seconds())
-	result.DiagnosticInfo.MessageId = response["parent_header"].(map[string]interface{})["msg_id"].(string)
+	//result.DiagnosticInfo.MessageId = response["parent_header"].(map[string]interface{})["msg_id"].(string)
 
 	return result
 }
@@ -352,6 +398,7 @@ func createHeader(msgType string, sessionId string) map[string]interface{} {
 		log.Err(err).Msg("Error generating UUID")
 	}
 
+	requestMsgID = msgID.String()
 	return map[string]interface{}{
 		"msg_id":   msgID.String(),
 		"username": "username",
@@ -371,19 +418,4 @@ func signMessage(header, parentHeader, metadata, content map[string]interface{},
 		h.Write(data)
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
-}
-
-func sendMessage(conn *websocket.Conn, message JupyterMessage) {
-	if err := conn.WriteJSON(message); err != nil {
-		log.Err(err).Msg("Error writing message")
-	}
-}
-
-func receiveMessage(conn *websocket.Conn) JupyterMessage {
-	var response JupyterMessage
-	if err := conn.ReadJSON(&response); err != nil {
-		log.Err(err).Msg("Error reading message")
-	}
-
-	return response
 }
