@@ -1,0 +1,576 @@
+package codeexecution
+
+import (
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+)
+
+type MessageHeader struct {
+	MsgId   string `json:"msg_id"`
+	MsgType string `json:"msg_type"`
+	Version string `json:"version"`
+}
+
+type ExecuteMessageContent struct {
+	Code            string                 `json:"code"`
+	Silent          bool                   `json:"silent"`
+	StoreHistory    bool                   `json:"store_history"`
+	AllowStdin      bool                   `json:"allow_stdin"`
+	StopOnError     bool                   `json:"stop_on_error"`
+	UserExpressions map[string]interface{} `json:"user_expressions"`
+}
+
+type ExecuteMessage struct {
+	Header       MessageHeader          `json:"header"`
+	MsgId        string                 `json:"msg_id"`
+	MsgType      string                 `json:"msg_type"`
+	Metadata     map[string]interface{} `json:"metadata"`
+	ParentHeader MessageHeader          `json:"parent_header"`
+	Content      ExecuteMessageContent  `json:"content"`
+	Channel      string                 `json:"channel"`
+}
+
+type GenericMessageContentData struct {
+	TextPlain    string `json:"text/plain"`
+	TextOfficePy string `json:"text/officepy"`
+	ImagePng     string `json:"image/png"`
+}
+
+type GenericMessageContent struct {
+	ErrorName      string                    `json:"ename"`
+	ErrorValue     string                    `json:"evalue"`
+	Traceback      []string                  `json:"traceback"`
+	Name           string                    `json:"name"`
+	Text           string                    `json:"text"`
+	Status         string                    `json:"status"`
+	Data           GenericMessageContentData `json:"data"`
+	ExecutionState string                    `json:"execution_state"`
+}
+
+type GenericMessage struct {
+	Header       MessageHeader          `json:"header"`
+	MsgId        string                 `json:"msg_id"`
+	MsgType      string                 `json:"msg_type"`
+	Metadata     map[string]interface{} `json:"metadata"`
+	ParentHeader MessageHeader          `json:"parent_header"`
+	Content      *GenericMessageContent `json:"content"`
+	Channel      string                 `json:"channel"`
+}
+
+type ExecuteResultAndTaskCompleteSource struct {
+	ExecuteResult           ExecutePlainTextResult
+	TaskCompletionSource    *ExecutePlainTextResult
+	ExecuteResultAlreadySet bool
+}
+
+type NotebookClientOptions struct {
+	Url                    string
+	Token                  string
+	MaxStdoutMessageLength int
+	IdleTimeout            time.Duration
+}
+
+func NewNotebookClientOptions() *NotebookClientOptions {
+	return &NotebookClientOptions{
+		Url:                    "http://localhost",
+		Token:                  "",
+		MaxStdoutMessageLength: 1024,
+		IdleTimeout:            time.Minute * 30,
+	}
+}
+
+func NewExecuteResultAndTaskCompleteSource() *ExecuteResultAndTaskCompleteSource {
+	return &ExecuteResultAndTaskCompleteSource{
+		ExecuteResult:        ExecutePlainTextResult{},
+		TaskCompletionSource: &ExecutePlainTextResult{},
+	}
+}
+
+// map to store the execute task complete source with message id
+var m_executeTaskCompleteSourceDict = make(map[string]*ExecuteResultAndTaskCompleteSource)
+
+// handle messages from jupyter and pass the executeTaskCompleteSource to the task completion source
+func HandleAndProcessMessage(jsonMessage []byte, msg_id string) *ExecuteResultAndTaskCompleteSource {
+	var message GenericMessage
+	err := json.Unmarshal(jsonMessage, &message)
+	if err != nil {
+		fmt.Println("Error unmarshalling message: ", err)
+		return nil
+	}
+
+	// add to the dictionary
+	if _, ok := m_executeTaskCompleteSourceDict[msg_id]; !ok {
+		m_executeTaskCompleteSourceDict[message.ParentHeader.MsgId] = NewExecuteResultAndTaskCompleteSource()
+	}
+
+	ConvertToExecutionResponse(message)
+
+	return m_executeTaskCompleteSourceDict[msg_id]
+}
+
+// function to take generic message and convert to ExecutionResponse based on message type
+// Cases:
+// - execute_request
+// - execute_reply
+// - execute_result
+// - display_data
+// - error
+// - status
+// - stream
+func ConvertToExecutionResponse(message GenericMessage) {
+	fmt.Println("Message Type: ", message.MsgType)
+	switch message.MsgType {
+	case "execute_reply":
+		HandleMessage_ExecuteReply(message)
+	case "execute_result":
+		handleExecuteResult(message)
+	case "display_data":
+		handleDisplayData(message)
+	case "error":
+		HandleMessage_Error(message)
+	case "status":
+		handleStatus(message)
+	case "stream":
+		handleStream(message)
+	}
+}
+
+// handle execute_reply
+func HandleMessage_ExecuteReply(message GenericMessage) {
+	msgId := message.ParentHeader.MsgId
+	if msgId == "" {
+		return
+	}
+
+	if message.Content == nil {
+		return
+	}
+
+	status := message.Content.Status
+	if status == "" {
+		return
+	}
+
+	if status == "aborted" {
+		if executeResultAndTaskCompleteSource, ok := m_executeTaskCompleteSourceDict[msgId]; ok {
+			executeResultAndTaskCompleteSource.ExecuteResult.Success = false
+			executeResultAndTaskCompleteSource.ExecuteResult.ErrorCode = ExecutionAborted
+			SetExecuteTaskComplete(executeResultAndTaskCompleteSource)
+		}
+	}
+}
+
+// handle execute_result
+func handleExecuteResult(message GenericMessage) {
+	msgId := message.ParentHeader.MsgId
+	if msgId == "" {
+		return
+	}
+
+	executeResultAndTaskCompleteSource, ok := m_executeTaskCompleteSourceDict[msgId]
+	if !ok {
+		return
+	}
+
+	if message.Content != nil {
+		data := message.Content.Data
+		if data != (GenericMessageContentData{}) {
+			executeResultAndTaskCompleteSource.ExecuteResult.TextOfficePy = data.TextOfficePy
+			executeResultAndTaskCompleteSource.ExecuteResult.TextPlain = data.TextPlain
+		}
+	}
+
+	executeResultAndTaskCompleteSource.ExecuteResult.Success = true
+
+	// Do not call SetExecuteTaskComplete as there could be DisplayData message that contains image data
+}
+
+// handle display_data
+func handleDisplayData(message GenericMessage) {
+	msgId := message.ParentHeader.MsgId
+	if msgId == "" {
+		return
+	}
+
+	executeResultAndTaskCompleteSource, ok := m_executeTaskCompleteSourceDict[msgId]
+	if !ok {
+		return
+	}
+
+	if message.Content != nil {
+		data := message.Content.Data
+		if data != (GenericMessageContentData{}) {
+			imagePng := data.ImagePng
+			if imagePng != "" {
+				if strings.HasSuffix(imagePng, "\n") {
+					imagePng = imagePng[:len(imagePng)-1]
+				}
+
+				executeResultAndTaskCompleteSource.ExecuteResult.TextOfficePy = BuildOfficePyResultForImage(imagePng)
+				executeResultAndTaskCompleteSource.ExecuteResult.ImageBase64Data = imagePng
+			}
+		}
+	}
+}
+
+// handle error
+func HandleMessage_Error(message GenericMessage) {
+	msgId := message.ParentHeader.MsgId
+	if msgId == "" {
+		return
+	}
+
+	executeResultAndTaskCompleteSource, ok := m_executeTaskCompleteSourceDict[msgId]
+	if !ok {
+		return
+	}
+
+	executeResultAndTaskCompleteSource.ExecuteResult.Success = false
+	if message.Content != nil {
+		strErrorName := message.Content.ErrorName
+		executeResultAndTaskCompleteSource.ExecuteResult.ErrorName = strErrorName
+
+		strErrorValue := message.Content.ErrorValue
+		executeResultAndTaskCompleteSource.ExecuteResult.ErrorMessage = strErrorValue
+
+		errorTraceback := message.Content.Traceback
+		if errorTraceback != nil {
+			var sb strings.Builder
+			for _, elem := range errorTraceback {
+				if elem != "" {
+					sb.WriteString(elem)
+					sb.WriteString("\n")
+				}
+			}
+			executeResultAndTaskCompleteSource.ExecuteResult.ErrorTraceback = sb.String()
+		}
+	}
+
+	//delete(m_executeTaskCompleteSourceDict, msgId)
+	SetExecuteTaskComplete(executeResultAndTaskCompleteSource)
+}
+
+// handle kernel_info_request
+
+// handle status
+func handleStatus(message GenericMessage) {
+	if message.Content == nil {
+		return
+	}
+
+	executeStateValue := message.Content.ExecutionState
+	if executeStateValue == "" {
+		return
+	}
+
+	if executeStateValue == "restarting" {
+		// m_kernelRestarted = true --> TODO: Implement this if required
+		for _, item := range m_executeTaskCompleteSourceDict {
+			item.ExecuteResult.Success = false
+			item.ExecuteResult.ErrorCode = KernelRestarted
+			SetExecuteTaskComplete(item)
+		}
+
+		m_executeTaskCompleteSourceDict = make(map[string]*ExecuteResultAndTaskCompleteSource)
+
+		return
+	}
+
+	msgId := message.ParentHeader.MsgId
+	if msgId == "" {
+		return
+	}
+
+	if executeResultAndTaskCompleteSource, ok := m_executeTaskCompleteSourceDict[msgId]; ok {
+		if executeStateValue == "idle" {
+			//delete(m_executeTaskCompleteSourceDict, msgId)
+			executeResultAndTaskCompleteSource.ExecuteResult.Success = true
+			SetExecuteTaskComplete(executeResultAndTaskCompleteSource)
+		}
+	}
+}
+
+// handle stream
+func handleStream(message GenericMessage) {
+	if message.Content == nil {
+		return
+	}
+
+	name := message.Content.Name
+	text := message.Content.Text
+
+	if name == "" || text == "" {
+		return
+	}
+
+	if name == "stdout" {
+		AppendOutputMessage(&m_stdout, text)
+	} else if name == "stderr" {
+		AppendOutputMessage(&m_stderr, text)
+	}
+}
+
+func SetExecuteTaskComplete(executeResultAndTaskCompleteSource *ExecuteResultAndTaskCompleteSource) {
+	TransferOutputMessageToExecuteResult(&executeResultAndTaskCompleteSource.ExecuteResult)
+	executeResultAndTaskCompleteSource.TaskCompletionSource = &executeResultAndTaskCompleteSource.ExecuteResult
+	executeResultAndTaskCompleteSource.ExecuteResultAlreadySet = true
+}
+
+var m_stdout strings.Builder
+var m_stderr strings.Builder
+
+func TransferOutputMessageToExecuteResult(result *ExecutePlainTextResult) {
+	TrimAndAppendEllipses(&m_stderr, NewNotebookClientOptions().MaxStdoutMessageLength)
+	result.Stderr = m_stderr.String()
+	TrimAndAppendEllipses(&m_stdout, NewNotebookClientOptions().MaxStdoutMessageLength)
+	result.Stdout = m_stdout.String()
+
+	// clear
+	m_stderr.Reset()
+	m_stdout.Reset()
+}
+
+func AppendOutputMessage(sb *strings.Builder, text string) {
+	if NewNotebookClientOptions().MaxStdoutMessageLength <= 0 {
+		// no output is allowed
+		return
+	}
+
+	// Add one more so that we know whether to use "..." at the end.
+	capacityLeft := NewNotebookClientOptions().MaxStdoutMessageLength + 1 - sb.Len()
+
+	if capacityLeft <= 0 {
+		return
+	}
+
+	if len(text) <= capacityLeft {
+		sb.WriteString(text)
+	} else {
+		sb.WriteString(text[:capacityLeft])
+	}
+}
+
+func TrimAndAppendEllipses(sb *strings.Builder, maxLength int) {
+	if maxLength < 0 {
+		panic("maxLength must be non-negative")
+	}
+
+	if maxLength == 0 {
+		sb.Reset()
+		return
+	}
+
+	if sb.Len() > maxLength {
+		appendEllipses := false
+		len := maxLength
+		if len >= 3 {
+			len = len - 3
+			appendEllipses = true
+		}
+
+		if len > 0 && utf8.RuneStart(sb.String()[len-1]) {
+			len = len - 1
+		}
+
+		sb.Reset()
+		sb.WriteString(sb.String()[:len])
+		if appendEllipses {
+			sb.WriteString("...")
+		}
+	}
+}
+
+func BuildOfficePyResultForImage(imageBase64Data string) string {
+	var result strings.Builder
+	writer := json.NewEncoder(&result)
+
+	writer.Encode(struct {
+		OfficePyResult struct {
+			Type       string `json:"type"`
+			Format     string `json:"format"`
+			Base64Data string `json:"base64_data"`
+		} `json:"officepy_result"`
+	}{
+		OfficePyResult: struct {
+			Type       string `json:"type"`
+			Format     string `json:"format"`
+			Base64Data string `json:"base64_data"`
+		}{
+			Type:       "image",
+			Format:     "png",
+			Base64Data: imageBase64Data,
+		},
+	})
+
+	return result.String()
+}
+
+func ConvertJupyterPlainResultToExecuteCodeResult(plainResult ExecutePlainTextResult, startTime time.Time) ExecutionResponse {
+	result := ExecutionResponse{}
+
+	if plainResult.Success {
+		if plainResult.TextOfficePy != "" {
+			j, _ := json.RawMessage(plainResult.TextOfficePy).MarshalJSON()
+			rawMessage := json.RawMessage(j)
+			result.Result = &rawMessage
+		} else if outVal, retVal := TryParsePythonLiteralBool(plainResult.TextPlain); retVal == true {
+			outVal, _ := json.Marshal(outVal)
+			outVal_rawJson := json.RawMessage(outVal)
+			result.Result = &outVal_rawJson
+		} else if intValue, retVal := TryParsePythonLiteralInteger(plainResult.TextPlain); retVal == true {
+			outVal, _ := json.Marshal(intValue)
+			outVal_rawJson := json.RawMessage(outVal)
+			result.Result = &outVal_rawJson
+		} else if doubleValue, retVal := TryParsePythonLiteralDouble(plainResult.TextPlain); retVal == true {
+			outVal, _ := json.Marshal(doubleValue)
+			outVal_rawJson := json.RawMessage(outVal)
+			result.Result = &outVal_rawJson
+		} else if strValue, retVal := TryParsePythonLiteralString(plainResult.TextPlain); retVal == true {
+			outVal, _ := json.Marshal(strValue)
+			outVal_rawJson := json.RawMessage(outVal)
+			result.Result = &outVal_rawJson
+		} else {
+			defaultJson, _ := json.Marshal(plainResult.TextPlain)
+			defaultJson_rawJson := json.RawMessage(defaultJson)
+			result.Result = &defaultJson_rawJson
+		}
+	} else {
+		// value defined in %SRCROOT%\officepy\publicapi\public\error.h
+		switch plainResult.ErrorCode {
+		case KernelRestarted:
+			result.HResult = -2147205111
+			fmt.Println("Kernel restarted")
+		case ExecutionAborted:
+			result.HResult = -2147205113
+			fmt.Println("Execution aborted")
+		default:
+			if plainResult.ErrorName == "KeyboardInterrupt" {
+				result.HResult = -2147205110
+			} else {
+				if plainResult.ErrorName == "" {
+					result.HResult = -2147205117
+				} else {
+					result.HResult = -2147205116
+				}
+			}
+			fmt.Println("Error: ", plainResult.ErrorName, " - ", plainResult.ErrorMessage, " - ", plainResult.ErrorTraceback)
+		}
+
+		result.ErrorMessage = plainResult.ErrorMessage
+		result.ErrorName = plainResult.ErrorName
+		result.ErrorStackTrace = plainResult.ErrorTraceback
+
+		if result.ErrorName == "SyntaxError" {
+			result.ErrorMessage = RemoveFileNameFromSyntaxErrorMessage(result.ErrorMessage)
+		} else if result.ErrorName == "KeyboardInterrupt" {
+			result.ErrorName = "Timeout"
+			result.ErrorMessage = "Timeout"
+		} else if result.ErrorName == "ProxyError" {
+			fmt.Println("Proxy error")
+		}
+	}
+
+	result.Stdout = plainResult.Stdout
+	result.Stderr = plainResult.Stderr
+	result.DiagnosticInfo.ExecutionDuration = int(time.Since(startTime).Seconds())
+
+	result.ApproximateSize = StringLength(&plainResult.TextOfficePy) + StringLength(&plainResult.TextPlain) + StringLength(&plainResult.Stdout) + StringLength(&plainResult.Stderr)
+
+	return result
+}
+
+var regexSyntaxErrorMessage = regexp.MustCompile(`(?P<line>\(\d+\))`)
+
+func RemoveFileNameFromSyntaxErrorMessage(message string) string {
+	if message == "" {
+		return ""
+	}
+
+	return regexSyntaxErrorMessage.ReplaceAllString(message, "(${line})")
+}
+
+func StringLength(s *string) int {
+	if s == nil {
+		return 0
+	}
+	return len(*s)
+}
+
+func TryParsePythonLiteralBool(literal string) (bool, bool) {
+	if literal == "True" {
+		return true, true
+	} else if literal == "False" {
+		return false, true
+	}
+
+	return false, false
+}
+
+func TryParsePythonLiteralInteger(literal string) (int, bool) {
+	value, err := strconv.Atoi(literal)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func TryParsePythonLiteralDouble(literal string) (float64, bool) {
+	value, err := strconv.ParseFloat(literal, 64)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func TryParsePythonLiteralString(literal string) (string, bool) {
+	value := ""
+	if len(literal) < 2 {
+		return value, false
+	}
+
+	if literal[0] == '\'' && literal[len(literal)-1] == '\'' ||
+		literal[0] == '"' && literal[len(literal)-1] == '"' {
+		sb := strings.Builder{}
+		for i := 1; i < len(literal)-1; i++ {
+			if literal[i] != '\\' {
+				sb.WriteString(string(literal[i]))
+			} else if i+1 < len(literal)-1 {
+				i++
+				chNext := literal[i]
+				switch chNext {
+				case '\\':
+					sb.WriteString("\\")
+				case '\'':
+					sb.WriteString("'")
+				case '"':
+					sb.WriteString("\"")
+				case 'a':
+					sb.WriteString("\a")
+				case 'b':
+					sb.WriteString("\b")
+				case 'f':
+					sb.WriteString("\f")
+				case 'n':
+					sb.WriteString("\n")
+				case 'r':
+					sb.WriteString("\r")
+				case 't':
+					sb.WriteString("\t")
+				case 'v':
+					sb.WriteString("\v")
+				default:
+					panic("Invalid escape sequence")
+				}
+			}
+		}
+		value = sb.String()
+		return value, true
+	}
+
+	return value, false
+}

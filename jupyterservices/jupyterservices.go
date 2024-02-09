@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"time"
 
-	"github.com/rs/zerolog/log"
+	"github.com/microsoft/jupyterpython/util"
 )
 
 // define kernel and session
@@ -17,7 +17,7 @@ type Kernel struct {
 	Name           string `json:"name"`
 	LastActivity   string `json:"last_activity"`
 	ExecutionState string `json:"execution_state"`
-	connections    int    `json:"connections"`
+	Connections    int    `json:"connections"`
 }
 
 type Session struct {
@@ -43,25 +43,26 @@ var Token = "test"
 
 // check if there are any available kernels running and if so create a new session
 // return the kernelId and sessionId
-func CheckKernels(kernelId string) (string, string) {
+func CheckKernels(kernelId string) (string, string, error) {
 	fmt.Println("Checking for available kernels...")
 
 	url := fmt.Sprintf("%s/api/kernels?token=%s", jupyterURL, Token)
-	response, err := http.Get(url)
+	client := util.HTTPClient()
+	response, err := client.Get(url)
 	if err != nil {
-		log.Err(err).Msg("Error getting kernels")
+		return "", "", fmt.Errorf("error getting kernels: %v", err)
 	}
 
 	defer response.Body.Close()
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Err(err).Msg("Error reading response body")
+		return "", "", fmt.Errorf("error reading response body: %v", err)
 	}
 
 	var kernels []Kernel
 	err = json.Unmarshal(body, &kernels)
 	if err != nil {
-		log.Err(err).Msg("Error unmarshaling JSON")
+		return "", "", fmt.Errorf("error unmarshaling JSON: %v", err)
 	}
 
 	fmt.Println(kernels)
@@ -70,7 +71,10 @@ func CheckKernels(kernelId string) (string, string) {
 	// if kernel exists, respond with kernel Id
 	if len(kernels) > 0 {
 		fmt.Printf("Kernel ID: %s\n", kernels[0].ID)
-		sessions := getSessions()
+		sessions, err := getSessions(client)
+		if err != nil {
+			return "", "", fmt.Errorf("error getting sessions: %v", err)
+		}
 
 		// return the first session or the session related to the passed kernelId
 		if len(sessions) > 0 {
@@ -90,43 +94,46 @@ func CheckKernels(kernelId string) (string, string) {
 			}
 		}
 	} else {
-		newSession := createSession()
+		newSession, err := createSession()
+		if err != nil {
+			return "", "", fmt.Errorf("error creating new session: %v", err)
+		}
 		fmt.Printf("Session ID: %s\n", newSession.ID)
 		sessionId = newSession.ID
 		kernelId = newSession.Kernel.ID
 	}
 
-	return kernelId, sessionId
+	return kernelId, sessionId, nil
 }
 
 // get sessions and return json object
-func getSessions() []Session {
+func getSessions(client *http.Client) ([]Session, error) {
 	fmt.Println("Listing available sessions:")
 
 	url := fmt.Sprintf("%s/api/sessions?token=%s", jupyterURL, Token)
-	response, err := http.Get(url)
+	response, err := client.Get(url)
 	if err != nil {
-		log.Err(err).Msg("Error getting sessions")
+		return nil, fmt.Errorf("error getting sessions: %v", err)
 	}
 
 	defer response.Body.Close()
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Err(err).Msg("Error reading response body")
+		return nil, fmt.Errorf("error reading response body: %v", err)
 	}
 
 	var sessions []Session
 	err = json.Unmarshal(body, &sessions)
 	if err != nil {
-		log.Err(err).Msg("Error unmarshaling JSON")
+		return nil, fmt.Errorf("error unmarshaling JSON: %v", err)
 	}
 
 	fmt.Println(sessions)
 
-	return sessions
+	return sessions, nil
 }
 
-func createSession() Session {
+func createSession() (*Session, error) {
 	fmt.Println("Creating a new session...")
 
 	// payload for POST request to create session as io.Reader value
@@ -135,20 +142,20 @@ func createSession() Session {
 	url := fmt.Sprintf("%s/api/sessions?token=%s", jupyterURL, Token)
 	response, err := http.Post(url, "application/json", payload)
 	if err != nil {
-		log.Err(err).Msg("Error creating session")
+		return nil, fmt.Errorf("error creating session: %v", err)
 	}
 
 	defer response.Body.Close()
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Err(err).Msg("Error reading response body")
+		return nil, fmt.Errorf("error reading response body: %v", err)
 	}
 
-	var sessionInfo Session
-	err = json.Unmarshal(body, &sessionInfo)
+	sessionInfo := &Session{}
+	err = json.Unmarshal(body, sessionInfo)
 	if err != nil {
-		log.Err(err).Msg("Error unmarshaling JSON")
+		return nil, fmt.Errorf("error unmarshaling JSON: %v", err)
 	}
 
-	return sessionInfo
+	return sessionInfo, nil
 }
