@@ -694,6 +694,11 @@ func main() {
 
 	go periodicCodeExecution(computeResourceKey)
 
-	log.Info().Msg("Starting server on port :6000")
-	http.ListenAndServeTLS(":6000", "cert.pem", "key.pem", router)
+	var cfg = GetConfig()
+
+	log.Info().Msg("Starting server on port :6000 with cert " + cfg.XdsCertFilePath + " and key " + cfg.XdsCertKeyFilePath)
+	error := http.ListenAndServeTLS(":6000", cfg.XdsCertFilePath, cfg.XdsCertKeyFilePath, router)
+	if error != nil {
+		log.Error().Msg("HTTPS Server Error: " + error.Error())
+	}
 }
