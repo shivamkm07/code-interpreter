@@ -7,6 +7,7 @@ import (
 )
 
 type JupyterPythonConfig struct {
+	UseTls             string `env:"USE_TLS,default=false"`
 	XdsCertFilePath    string `env:"XDS_CERT_FILE_PATH,default=/etc/jupyterpython/certs/cert.pem"`
 	XdsCertKeyFilePath string `env:"XDS_CERT_KEY_FILE_PATH,default=/etc/jupyterpython/certs/key.pem"`
 }
