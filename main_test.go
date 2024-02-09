@@ -17,7 +17,6 @@ import (
 func TestListFilesHandler(t *testing.T) {
 	// Create a temporary directory for testing
 	tempDir := t.TempDir()
-	fileservices.DirPath = tempDir
 
 	// Create some test files and directories
 	testFiles := []string{"file1.txt", "file2.txt", "file3.txt"}
