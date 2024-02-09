@@ -2,7 +2,10 @@ name: JupyterPython E2E Tests
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: 
+        - main
+        - dev
+        - feature/*
 
 jobs:
   build:
