@@ -1,0 +1,33 @@
+name: JupyterPython E2E Tests
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v2
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+
+    - name: Build Docker image
+      run: make build-jupyterpython-image
+
+    - name: Run Docker container
+      run: make run-jupyterpython-container
+
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.16
+
+    - name: Run tests
+      run: make test-e2e-all
+
+    - name: Delete Docker container
+      run: make delete-jupyterpython-container

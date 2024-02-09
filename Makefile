@@ -9,12 +9,17 @@ export GOSUMDB ?= sum.golang.org
 TEST_OUTPUT_FILE_PREFIX ?= ./test_report
 
 
-build-image:
+build-jupyterpython-image:
 	docker build -t jupyterpython .
 
-run-container:
+run-jupyterpython-container:
 	docker run -p 8080:8080 jupyterpython
 
 # start all e2e tests
 test-e2e-all:
 	go test ./tests/e2e/...
+
+delete-jupyterpython-container:
+	 @CONTAINER_ID=$$(docker ps -a -q --filter ancestor=jupyterpython); \
+	 echo "Container ID: $$CONTAINER_ID"; \
+	 docker rm -f $$CONTAINER_ID

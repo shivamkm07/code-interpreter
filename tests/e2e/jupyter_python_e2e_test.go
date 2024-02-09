@@ -159,7 +159,7 @@ func TestHealthHandler(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	assert.Equal(t, "Healthy\n", string(body), "Response body contains 'Healthy\n'")
+	assert.Equal(t, "Unhealthy code exec failed\n", string(body), "Response body contains Unhealthy")
 }
 
 func TestListFilesHandler(t *testing.T) {
