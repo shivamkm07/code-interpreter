@@ -104,6 +104,8 @@ var m_executeTaskCompleteSourceDict = make(map[string]*ExecuteResultAndTaskCompl
 // handle messages from jupyter and pass the executeTaskCompleteSource to the task completion source
 func HandleAndProcessMessage(jsonMessage []byte, msg_id string) *ExecuteResultAndTaskCompleteSource {
 	var message GenericMessage
+	var returnMessage *ExecuteResultAndTaskCompleteSource
+
 	err := json.Unmarshal(jsonMessage, &message)
 	if err != nil {
 		fmt.Println("Error unmarshalling message: ", err)
@@ -117,7 +119,15 @@ func HandleAndProcessMessage(jsonMessage []byte, msg_id string) *ExecuteResultAn
 
 	ConvertToExecutionResponse(message)
 
-	return m_executeTaskCompleteSourceDict[msg_id]
+	// remove the dictionary entry if the task is already set
+	if executeResultAndTaskCompleteSource, ok := m_executeTaskCompleteSourceDict[msg_id]; ok {
+		returnMessage = executeResultAndTaskCompleteSource
+		if executeResultAndTaskCompleteSource.ExecuteResultAlreadySet {
+			delete(m_executeTaskCompleteSourceDict, msg_id)
+		}
+	}
+
+	return returnMessage
 }
 
 // function to take generic message and convert to ExecutionResponse based on message type
@@ -304,6 +314,7 @@ func handleStatus(message GenericMessage) {
 
 func SetExecuteTaskComplete(executeResultAndTaskCompleteSource *ExecuteResultAndTaskCompleteSource) {
 	TransferOutputMessageToExecuteResult(&executeResultAndTaskCompleteSource.ExecuteResult)
+	// executeResultAndTaskCompleteSource.ExecuteResult.ExecutionDurationMilliseconds += int(time.Since(startTime).Milliseconds())
 	executeResultAndTaskCompleteSource.TaskCompletionSource = &executeResultAndTaskCompleteSource.ExecuteResult
 	executeResultAndTaskCompleteSource.ExecuteResultAlreadySet = true
 }
@@ -464,7 +475,7 @@ func ConvertJupyterPlainResultToExecuteCodeResult(plainResult ExecutePlainTextRe
 
 	result.Stdout = plainResult.Stdout
 	result.Stderr = plainResult.Stderr
-	result.DiagnosticInfo.ExecutionDuration = int(time.Since(startTime).Seconds())
+	result.DiagnosticInfo.ExecutionDuration = int(time.Since(startTime).Milliseconds())
 
 	result.ApproximateSize = StringLength(&plainResult.TextOfficePy) + StringLength(&plainResult.TextPlain) + StringLength(&plainResult.Stdout) + StringLength(&plainResult.Stderr)
 
