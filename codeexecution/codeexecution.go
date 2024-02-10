@@ -1,3 +1,17 @@
+// Copyright 2023 Microsoft Corporation
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package codeexecution
 
 import (
@@ -23,7 +37,6 @@ import (
 
 var (
 	interrupt    = make(chan os.Signal, 1)
-	wg           sync.WaitGroup
 	ws           *websocket.Conn
 	requestMsgID string
 )
@@ -171,10 +184,8 @@ func onClose() {
 
 func onOpen(ws *websocket.Conn, sessionId string, code string) []byte {
 	var jsonMessage []byte
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
 
+	go func() {
 		header := createHeader("execute_request", sessionId)
 		parentHeader := make(map[string]interface{})
 		metadata := make(map[string]interface{})
@@ -207,7 +218,6 @@ func onOpen(ws *websocket.Conn, sessionId string, code string) []byte {
 		}
 	}()
 
-	wg.Wait()
 	return jsonMessage
 }
 
@@ -298,43 +308,6 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 	}()
 
 	return responseChan
-}
-
-// func to convert response to ExecutionResult
-func convertToExecutionResult_tbd(response map[string]interface{}, startTime time.Time) ExecutionResponse {
-	var result ExecutionResponse
-	/* if response is in the format - "data": {
-		"text/plain": "25"
-		},
-		"metadata": {},
-		"execution_count": 3
-	}*/
-	// then Result should be "text/plain": "25"
-	/* if response is in the format - {
-						"name": "stdout",
-	    				"text": "Hello Earth"
-					}*/
-	// the Stdout should be "Hello Earth" and Result should be stdout
-	if response["name"] == "stdout" {
-		result.Stdout = response["text"].(string)
-	}
-	if response["status"] == "error" {
-		//result.Result = response["traceback"].([]interface{})[0].(string)
-		result.ErrorName = response["ename"].(string)
-		result.ErrorMessage = response["evalue"].(string)
-	}
-	if response["data"] != nil {
-		// iterate over the data and get the value of different types of data and keep adding to the result
-		for _, value := range response["data"].(map[string]interface{}) {
-			result.Result = &json.RawMessage{}
-			*result.Result = []byte(value.(string))
-		}
-	}
-
-	result.DiagnosticInfo.ExecutionDuration = int(time.Since(startTime).Seconds())
-	//result.DiagnosticInfo.MessageId = response["parent_header"].(map[string]interface{})["msg_id"].(string) <- this is not needed, enable for debugging
-
-	return result
 }
 
 func createHeader(msgType string, sessionId string) map[string]interface{} {
