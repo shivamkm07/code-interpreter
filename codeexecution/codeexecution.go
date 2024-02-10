@@ -32,15 +32,7 @@ type ExecutionRequest struct {
 	Code string `json:"code"`
 }
 
-type ExecutePlainTextResultErrorCode int
-
-const (
-	Success ExecutePlainTextResultErrorCode = iota
-	Generic
-	KernelRestarted
-	ExecutionAborted
-)
-
+// struct to convert GenericMessage to ExecutionPlainTextResult
 type ExecutePlainTextResult struct {
 	Success                       bool                            `json:"success"`
 	ErrorCode                     ExecutePlainTextResultErrorCode `json:"errorCode"`
@@ -55,6 +47,7 @@ type ExecutePlainTextResult struct {
 	ExecutionDurationMilliseconds int                             `json:"executionDurationMilliseconds"`
 }
 
+// Final result of the execution to be returned
 type ExecutionResponse struct {
 	HResult         int                       `json:"hresult"`
 	Result          *json.RawMessage          `json:"result"`
@@ -124,12 +117,9 @@ func ExecuteCode(kernelId, sessionId, code string) ExecutionResponse {
 
 	responseChan := connectWebSocket(kernelId, sessionId, code)
 
-	// Wait for response or timeout
+	// select to timeout if no response is received in 60 seconds, else return the response
 	select {
-	case response := <-responseChan:
-		fmt.Println("Received response:", response)
-		return response
-	case <-time.After(60 * time.Second): // Timeout after 10 seconds
+	case <-time.After(jupyterservices.Timeout):
 		fmt.Println("Timeout: No response received.")
 		return ExecutionResponse{
 			HResult:      1,
@@ -139,42 +129,10 @@ func ExecuteCode(kernelId, sessionId, code string) ExecutionResponse {
 			Stdout:       "",
 			Stderr:       "",
 		}
+	case response := <-responseChan:
+		fmt.Println("Received response:", response)
+		return response
 	}
-}
-
-func onMessage_tbd(message []byte) map[string]interface{} {
-	fmt.Printf("Received message: %s\n", message)
-	var msg map[string]interface{}
-	var content map[string]interface{}
-	err := json.Unmarshal(message, &msg)
-	if err != nil {
-		log.Err(err).Msg("Error unmarshaling JSON")
-	}
-	header := msg["header"].(map[string]interface{})
-	msgType := header["msg_type"].(string)
-
-	switch msgType {
-	case "stream":
-		content = msg["content"].(map[string]interface{})
-		if content["name"].(string) == "stdout" {
-			fmt.Printf("\n\nSTDOUT: %s\n", content["text"])
-		} else if content["name"].(string) == "stderr" {
-			fmt.Printf("\n\nSTDERR: %s\n", content["text"])
-		}
-	case "execute_result":
-		content = msg["content"].(map[string]interface{})
-	case "display_data":
-		content = msg["content"].(map[string]interface{})
-	case "execute_reply":
-		content = msg["content"].(map[string]interface{})
-	}
-
-	if content != nil {
-		content["parent_header"] = msg["parent_header"]
-		return content
-	}
-
-	return nil
 }
 
 func onMessage(message []byte) *ExecutePlainTextResult {
@@ -184,17 +142,15 @@ func onMessage(message []byte) *ExecutePlainTextResult {
 		log.Err(err).Msg("Error unmarshaling JSON")
 	}
 
-	// get parent_header from the message
+	// get parent_header from the message we got over websocket
 	parentHeader := msg["parent_header"].(map[string]interface{})
-
-	// get msg_id from the parent_header
 	msgID := parentHeader["msg_id"].(string)
 
 	if msgID != requestMsgID {
 		return nil
 	}
 
-	// call HandleAndProcessMessage
+	// if current message Id matches the Id of the meessage we sent then process the message
 	m := HandleAndProcessMessage(message, msgID)
 
 	// if ExecuteResultAlreadySet is false then return nil
@@ -203,10 +159,6 @@ func onMessage(message []byte) *ExecutePlainTextResult {
 	}
 
 	return &m.ExecuteResult
-}
-
-func onError(err error) {
-	log.Err(err).Msg("Error reading message")
 }
 
 func onClose() {
@@ -303,7 +255,8 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 		for {
 			_, message, err := ws.ReadMessage()
 			if err != nil {
-				onError(err)
+				fmt.Println("Error reading message:", err)
+				log.Err(err).Msg("Error reading message")
 				ws = nil
 				return
 			}
@@ -324,12 +277,9 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 			}
 			response := onMessage(message)
 			if response != nil {
-				// if response["parent_header"] != nil && response["parent_header"].(map[string]interface{})["msg_type"].(string) == "execute_request" {
-				// 	result := convertToExecutionResult(response, startTime)
-				// 	responseChan <- result
-				// }
 				result := ConvertJupyterPlainResultToExecuteCodeResult(*response, startTime)
 				responseChan <- result
+				break
 			}
 		}
 	}()
@@ -382,7 +332,7 @@ func convertToExecutionResult_tbd(response map[string]interface{}, startTime tim
 	}
 
 	result.DiagnosticInfo.ExecutionDuration = int(time.Since(startTime).Seconds())
-	//result.DiagnosticInfo.MessageId = response["parent_header"].(map[string]interface{})["msg_id"].(string)
+	//result.DiagnosticInfo.MessageId = response["parent_header"].(map[string]interface{})["msg_id"].(string) <- this is not needed, enable for debugging
 
 	return result
 }

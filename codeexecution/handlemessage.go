@@ -3,11 +3,18 @@ package codeexecution
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+)
+
+type ExecutePlainTextResultErrorCode int
+
+const (
+	Success ExecutePlainTextResultErrorCode = iota
+	Generic
+	KernelRestarted
+	ExecutionAborted
 )
 
 type MessageHeader struct {
@@ -251,11 +258,11 @@ func HandleMessage_Error(message GenericMessage) {
 		}
 	}
 
-	//delete(m_executeTaskCompleteSourceDict, msgId)
+	//delete(m_executeTaskCompleteSourceDict, msgId) <-- to be implemented if required
 	SetExecuteTaskComplete(executeResultAndTaskCompleteSource)
 }
 
-// handle kernel_info_request
+// handle kernel_info_request <-- To be implemented if required
 
 // handle status
 func handleStatus(message GenericMessage) {
@@ -269,7 +276,7 @@ func handleStatus(message GenericMessage) {
 	}
 
 	if executeStateValue == "restarting" {
-		// m_kernelRestarted = true --> TODO: Implement this if required
+		// kernelRestarted = true --> TODO: Implement this if required
 		for _, item := range m_executeTaskCompleteSourceDict {
 			item.ExecuteResult.Success = false
 			item.ExecuteResult.ErrorCode = KernelRestarted
@@ -288,30 +295,10 @@ func handleStatus(message GenericMessage) {
 
 	if executeResultAndTaskCompleteSource, ok := m_executeTaskCompleteSourceDict[msgId]; ok {
 		if executeStateValue == "idle" {
-			//delete(m_executeTaskCompleteSourceDict, msgId)
+			//delete(m_executeTaskCompleteSourceDict, msgId) <-- to be implemented if required
 			executeResultAndTaskCompleteSource.ExecuteResult.Success = true
 			SetExecuteTaskComplete(executeResultAndTaskCompleteSource)
 		}
-	}
-}
-
-// handle stream
-func handleStream(message GenericMessage) {
-	if message.Content == nil {
-		return
-	}
-
-	name := message.Content.Name
-	text := message.Content.Text
-
-	if name == "" || text == "" {
-		return
-	}
-
-	if name == "stdout" {
-		AppendOutputMessage(&m_stdout, text)
-	} else if name == "stderr" {
-		AppendOutputMessage(&m_stderr, text)
 	}
 }
 
@@ -482,95 +469,4 @@ func ConvertJupyterPlainResultToExecuteCodeResult(plainResult ExecutePlainTextRe
 	result.ApproximateSize = StringLength(&plainResult.TextOfficePy) + StringLength(&plainResult.TextPlain) + StringLength(&plainResult.Stdout) + StringLength(&plainResult.Stderr)
 
 	return result
-}
-
-var regexSyntaxErrorMessage = regexp.MustCompile(`(?P<line>\(\d+\))`)
-
-func RemoveFileNameFromSyntaxErrorMessage(message string) string {
-	if message == "" {
-		return ""
-	}
-
-	return regexSyntaxErrorMessage.ReplaceAllString(message, "(${line})")
-}
-
-func StringLength(s *string) int {
-	if s == nil {
-		return 0
-	}
-	return len(*s)
-}
-
-func TryParsePythonLiteralBool(literal string) (bool, bool) {
-	if literal == "True" {
-		return true, true
-	} else if literal == "False" {
-		return false, true
-	}
-
-	return false, false
-}
-
-func TryParsePythonLiteralInteger(literal string) (int, bool) {
-	value, err := strconv.Atoi(literal)
-	if err != nil {
-		return 0, false
-	}
-	return value, true
-}
-
-func TryParsePythonLiteralDouble(literal string) (float64, bool) {
-	value, err := strconv.ParseFloat(literal, 64)
-	if err != nil {
-		return 0, false
-	}
-	return value, true
-}
-
-func TryParsePythonLiteralString(literal string) (string, bool) {
-	value := ""
-	if len(literal) < 2 {
-		return value, false
-	}
-
-	if literal[0] == '\'' && literal[len(literal)-1] == '\'' ||
-		literal[0] == '"' && literal[len(literal)-1] == '"' {
-		sb := strings.Builder{}
-		for i := 1; i < len(literal)-1; i++ {
-			if literal[i] != '\\' {
-				sb.WriteString(string(literal[i]))
-			} else if i+1 < len(literal)-1 {
-				i++
-				chNext := literal[i]
-				switch chNext {
-				case '\\':
-					sb.WriteString("\\")
-				case '\'':
-					sb.WriteString("'")
-				case '"':
-					sb.WriteString("\"")
-				case 'a':
-					sb.WriteString("\a")
-				case 'b':
-					sb.WriteString("\b")
-				case 'f':
-					sb.WriteString("\f")
-				case 'n':
-					sb.WriteString("\n")
-				case 'r':
-					sb.WriteString("\r")
-				case 't':
-					sb.WriteString("\t")
-				case 'v':
-					sb.WriteString("\v")
-				default:
-					panic("Invalid escape sequence")
-				}
-			}
-		}
-		value = sb.String()
-		return value, true
-	}
-
-	return value, false
 }
