@@ -254,7 +254,6 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 
 	ws.SetPongHandler(func(appData string) error {
 		log.Info().Msgf("Received pong: %s\n", appData)
-		ws.NetConn().Write([]byte("pong"))
 		return nil
 	})
 
@@ -263,6 +262,11 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 
 		startTime := time.Now()
 		for {
+			// ws is nil if the connection is closed
+			if ws == nil {
+				return
+			}
+
 			_, message, err := ws.ReadMessage()
 			if err != nil {
 				fmt.Println("Error reading message:", err)

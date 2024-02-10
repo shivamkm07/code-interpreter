@@ -115,7 +115,6 @@ func periodicCodeExecution() {
 		} else {
 			lastCodeHealthCheck = false
 			log.Error().Msg("Failed to execute code")
-			panic("Health Ping Failed")
 		}
 	}
 }
