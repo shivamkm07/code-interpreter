@@ -23,6 +23,7 @@ WORKDIR /app
 USER root
 
 RUN apt-get update && apt-get install -y \
+    uuid-runtime \
     gcc \
     wget \
     pkg-config \

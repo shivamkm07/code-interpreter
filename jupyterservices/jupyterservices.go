@@ -53,12 +53,12 @@ const (
 	Timeout    = 60 * time.Second
 )
 
-var Token = "test"
+var Token = ""
 
 // check if there are any available kernels running and if so create a new session
 // return the kernelId and sessionId
 func CheckKernels(kernelId string) (string, string, error) {
-	fmt.Println("Checking for available kernels...")
+	fmt.Println("Checking for available kernels... with token: ", Token)
 
 	url := fmt.Sprintf("%s/api/kernels?token=%s", jupyterURL, Token)
 	client := util.HTTPClient()

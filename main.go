@@ -35,13 +35,13 @@ func init() {
 	log.Logger = log.Output(os.Stdout)
 }
 
-var token = "test"
 var lastCodeHealthCheck bool
 
 func main() {
 	r := mux.NewRouter()
+	setToken()
 
-	log.Info().Msgf("Starting Jupyter API server with token: %s", token)
+	log.Info().Msgf("Starting Jupyter API server with token: %s", jupyterservices.Token)
 
 	// Define your routes
 	r.HandleFunc("/", initializeJupyter).Methods("GET")
@@ -67,25 +67,24 @@ func main() {
 }
 
 // func to take token from the environment variable
-func getToken() string {
-	token = os.Getenv("JUPYTER_TOKEN")
-	if token == "" {
-		token = "test"
-		log.Info().Msg("Token not found in environment variable, using default token: " + token)
+func setToken() {
+	jupyterservices.Token = os.Getenv("JUPYTER_GEN_TOKEN")
+	if jupyterservices.Token == "" {
+		jupyterservices.Token = "test"
+		log.Info().Msg("Token not found in environment variable, using default token: " + jupyterservices.Token)
+	} else {
+		log.Info().Msg("Token found in environment variable: " + jupyterservices.Token)
 	}
-	return token
 }
 
 // func to initialize jupyter
 func initializeJupyter(w http.ResponseWriter, r *http.Request) {
-	// get token from the environment variable
-	token = getToken()
 	_, _, err := jupyterservices.CheckKernels("")
 	if err != nil {
 		log.Err(err).Msg("Failed to check kernels")
 		util.SendHTTPResponse(w, http.StatusInternalServerError, "error checking kernels"+err.Error(), true)
 	}
-	util.SendHTTPResponse(w, http.StatusOK, "jupyter initialized with token: "+token, true)
+	util.SendHTTPResponse(w, http.StatusOK, "jupyter initialized with token: "+jupyterservices.Token, true)
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +96,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func periodicCodeExecution() {
-	time.Sleep(25 * time.Second)
+	time.Sleep(30 * time.Second)
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 

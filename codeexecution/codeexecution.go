@@ -15,8 +15,6 @@
 package codeexecution
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -196,8 +194,6 @@ func onOpen(ws *websocket.Conn, sessionId string, code string) []byte {
 			"user_expressions": make(map[string]interface{}),
 			"allow_stdin":      false,
 		}
-		secret := jupyterservices.Token // Replace with the actual key
-		signature := signMessage(header, parentHeader, metadata, content, secret)
 
 		message := map[string]interface{}{
 			"header":        header,
@@ -205,7 +201,6 @@ func onOpen(ws *websocket.Conn, sessionId string, code string) []byte {
 			"metadata":      metadata,
 			"content":       content,
 			"buffers":       []interface{}{},
-			"signature":     signature,
 		}
 
 		// print the message in JSON format
@@ -225,7 +220,7 @@ func onOpen(ws *websocket.Conn, sessionId string, code string) []byte {
 func connectWebSocket(kernelID string, sessionID string, code string) <-chan ExecutionResponse {
 	responseChan := make(chan ExecutionResponse)
 
-	interruptSignal := make(chan os.Signal, 1)
+	interruptSignal := make(chan os.Signal)
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
 
 	u := url.URL{Scheme: "ws", Host: "localhost:8888", Path: "/api/kernels/" + kernelID + "/channels", RawQuery: "token=" + jupyterservices.Token}
@@ -333,16 +328,4 @@ func createHeader(msgType string, sessionId string) map[string]interface{} {
 		"msg_type": msgType,
 		"version":  "5.3", // or other protocol version as needed
 	}
-}
-
-func signMessage(header, parentHeader, metadata, content map[string]interface{}, secret string) string {
-	h := hmac.New(sha256.New, []byte(secret))
-	for _, part := range []map[string]interface{}{header, parentHeader, metadata, content} {
-		data, err := json.Marshal(part)
-		if err != nil {
-			log.Err(err).Msg("Error marshaling JSON")
-		}
-		h.Write(data)
-	}
-	return fmt.Sprintf("%x", h.Sum(nil))
 }
