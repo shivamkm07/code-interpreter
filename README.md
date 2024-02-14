@@ -1,4 +1,4 @@
-# Jupyter Python
+# Sessions Code Interpreter
 
 A fork of Office AI Image with a custom handler for managing the Jupyter Python Code Interpreter. This project is designed to provide the backend for ACA Sessions Python Code Interpreter.
 
