@@ -9,35 +9,13 @@ import (
 	"mime/multipart"
 	"net/http"
 	"testing"
-	"time"
 
 	"os"
 
+	ce "github.com/microsoft/jupyterpython/codeexecution"
+	fs "github.com/microsoft/jupyterpython/fileservices"
 	"github.com/stretchr/testify/assert"
 )
-
-type ExecutionResponse struct {
-	Hresult        int            `json:"hresult"`
-	Result         string         `json:"result"`
-	ErrorName      string         `json:"error_name"`
-	ErrorMessage   string         `json:"error_message"`
-	Stdout         string         `json:"stdout"`
-	Stderr         string         `json:"stderr"`
-	DiagnosticInfo DiagnosticInfo `json:"diagnosticInfo"`
-}
-
-type DiagnosticInfo struct {
-	ExecutionDuration int `json:"executionDuration"`
-}
-
-type FileMetadata struct {
-	Name        string    `json:"name"`
-	Type        string    `json:"type"`
-	Filename    string    `json:"filename"` // remove this after CP change since we have name
-	Size        int64     `json:"size"`
-	LastModTime time.Time `json:"last_modified_time"`
-	MIMEType    string    `json:"mime_type"` // remove this after CP change since we have type
-}
 
 func TestExecuteSumCode(t *testing.T) {
 	//log message stating the test is running
@@ -56,13 +34,19 @@ func TestExecuteSumCode(t *testing.T) {
 	assert.Nil(t, err, "No error")
 
 	// Unmarshal the response body
-	var executionResponse ExecutionResponse
+	var executionResponse ce.ExecutionResponse
+	//convert body to string
 	err = json.Unmarshal(body, &executionResponse)
 
 	assert.Nil(t, err, "No error")
 
+	var actualResult int
+	err = json.Unmarshal(*executionResponse.Result, &actualResult)
+
+	assert.Nil(t, err, "No error")
+
 	// check if executionResponse.Result contains 2
-	assert.Equal(t, "2; ", executionResponse.Result, "Result contains 2; ")
+	assert.Equal(t, 2, actualResult, "Result is 2 ")
 }
 
 func TestExecuteSleepAndPrintCode(t *testing.T) {
@@ -79,13 +63,13 @@ func TestExecuteSleepAndPrintCode(t *testing.T) {
 	assert.Nil(t, err, "No error")
 
 	// Unmarshal the response body
-	var executionResponse ExecutionResponse
+	var executionResponse ce.ExecutionResponse
 	err = json.Unmarshal(body, &executionResponse)
 
 	assert.Nil(t, err, "No error")
 
 	// check if executionResponse.Result contains 2
-	assert.Equal(t, 0, executionResponse.Hresult, "Hresult is 0")
+	assert.Equal(t, 0, executionResponse.HResult, "Hresult is 0")
 }
 
 func TestExecuteHelloEarthCode(t *testing.T) {
@@ -102,7 +86,7 @@ func TestExecuteHelloEarthCode(t *testing.T) {
 	assert.Nil(t, err, "No error")
 
 	// Unmarshal the response body
-	var executionResponse ExecutionResponse
+	var executionResponse ce.ExecutionResponse
 	err = json.Unmarshal(body, &executionResponse)
 
 	assert.Nil(t, err, "No error")
@@ -125,13 +109,13 @@ func TestExecuteMatplotlibCode(t *testing.T) {
 	assert.Nil(t, err, "No error")
 
 	// Unmarshal the response body
-	var executionResponse ExecutionResponse
+	var executionResponse ce.ExecutionResponse
 	err = json.Unmarshal(body, &executionResponse)
 
 	assert.Nil(t, err, "No error")
 
 	// check if executionResponse.Result contains 2
-	assert.Equal(t, 0, executionResponse.Hresult, "Hresult is 0")
+	assert.Equal(t, 0, executionResponse.HResult, "Hresult is 0")
 }
 
 func TestInitializeJupyter(t *testing.T) {
@@ -148,7 +132,7 @@ func TestInitializeJupyter(t *testing.T) {
 	assert.Equal(t, "{\"message\": \"Jupyter initialized with token, test.\"}", string(body), "Response body contains Jupyter initialized with token, test.")
 }
 
-func TestHealthHandler(t *testing.T) {
+func TestHealthHandlerUnhealthyState(t *testing.T) {
 	var httpGetRequest = "http://localhost:8080/health"
 	response, err := http.Get(httpGetRequest)
 
@@ -175,6 +159,20 @@ func TestListFilesHandler(t *testing.T) {
 
 	assert.Equal(t, "null", string(body), "Response body contains null")
 }
+
+// func TestHealthHandlerHealthyState(t *testing.T) {
+// 	var httpGetRequest = "http://localhost:8080/health"
+// 	response, err := http.Get(httpGetRequest)
+
+// 	// Assert no error
+// 	assert.Nil(t, err, "No error")
+
+// 	// Read the response body
+// 	body, err := io.ReadAll(response.Body)
+// 	assert.Nil(t, err, "No error")
+
+// 	assert.Equal(t, "Healthy", string(body), "Response body contains Healthy")
+// }
 
 func TestUploadFileHandler(t *testing.T) {
 	var httpPostRequest = "http://localhost:8080/upload"
@@ -215,7 +213,7 @@ func TestUploadFileHandler(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	var metadataList []FileMetadata
+	var metadataList []fs.FileMetadata
 	err = json.Unmarshal(body, &metadataList)
 
 	assert.Equal(t, "test.json", metadataList[0].Filename, "Filename is test.json")
@@ -275,7 +273,7 @@ func TestGetFileHandlerFileFound(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	var metadataList FileMetadata
+	var metadataList fs.FileMetadata
 	err = json.Unmarshal(body, &metadataList)
 
 	assert.Equal(t, "test.json", metadataList.Filename, "Filename is test.json")
@@ -307,7 +305,7 @@ func TestListFilesHandlerListFiles(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	var metadataList []FileMetadata
+	var metadataList []fs.FileMetadata
 	err = json.Unmarshal(body, &metadataList)
 
 	assert.Equal(t, "test.json", metadataList[0].Filename, "Filename is test.json")
@@ -353,7 +351,7 @@ func TestUploadFileHandlerWithPath(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	var metadataList []FileMetadata
+	var metadataList []fs.FileMetadata
 	err = json.Unmarshal(body, &metadataList)
 
 	assert.Equal(t, "file.txt", metadataList[0].Filename, "Filename is test.json")
@@ -371,7 +369,7 @@ func TestListFilesHandlerWithPath(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	var metadataList []FileMetadata
+	var metadataList []fs.FileMetadata
 	err = json.Unmarshal(body, &metadataList)
 
 	assert.Equal(t, "file.txt", metadataList[0].Filename, "Filename is test.json")
