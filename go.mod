@@ -6,7 +6,7 @@ require (
 	github.com/gofrs/uuid v4.4.0+incompatible
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.1
-	github.com/rs/zerolog v1.31.0
+	github.com/rs/zerolog v1.32.0
 )
 
 require (
