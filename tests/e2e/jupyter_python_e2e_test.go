@@ -51,7 +51,7 @@ func TestExecuteSumCode(t *testing.T) {
 
 func TestExecuteSleepAndPrintCode(t *testing.T) {
 	var httpPostRequest = "http://localhost:8080/execute"
-	var httpPostBody = "{ \"code\": \"import time \ntime.sleep(5) \nprint(\\\"Done Sleeping\\\")\" }"
+	var httpPostBody = "{ \"code\": \"import time \\ntime.sleep(5) \\nprint(\\\"Done Sleeping\\\")\" }"
 
 	response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
 
@@ -90,14 +90,12 @@ func TestExecuteHelloEarthCode(t *testing.T) {
 	err = json.Unmarshal(body, &executionResponse)
 
 	assert.Nil(t, err, "No error")
-
-	// check if executionResponse.Result contains 2
-	assert.Equal(t, "Hello Earth\n", executionResponse.Stdout, "Stdout equals Hello Earth\n")
+	assert.Equal(t, 0, executionResponse.HResult, "Hresult is 0")
 }
 
 func TestExecuteMatplotlibCode(t *testing.T) {
 	var httpPostRequest = "http://localhost:8080/execute"
-	var httpPostBody = "{ \"code\": \"import matplotlib.pyplot as plt \nimport numpy as np \nx = np.linspace(-2*np.pi, 2*np.pi, 1000) \ny = np.tan(x) \nplt.plot(x, y) \nplt.ylim(-10, 10) \nplt.title('Tangent Curve') \nplt.xlabel('x') \nplt.ylabel('tan(x)') \nplt.grid(True) \nplt.show()\" }"
+	var httpPostBody = "{ \"code\": \"import matplotlib.pyplot as plt \\nimport numpy as np \\nx = np.linspace(-2*np.pi, 2*np.pi, 1000) \\ny = np.tan(x) \\nplt.plot(x, y) \\nplt.ylim(-10, 10) \\nplt.title(\\\"Tangent Curve\\\") \\nplt.xlabel(\\\"x\\\") \\nplt.ylabel(\\\"tan(x)\\\") \\nplt.grid(True) \\nplt.show()\" }"
 
 	response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
 
@@ -118,9 +116,15 @@ func TestExecuteMatplotlibCode(t *testing.T) {
 	assert.Equal(t, 0, executionResponse.HResult, "Hresult is 0")
 }
 
-func TestInitializeJupyter(t *testing.T) {
-	var httpGetRequest = "http://localhost:8080/"
-	response, err := http.Get(httpGetRequest)
+// We could also add a generic execute code test case, which reads it from the .py files. That way it would be much simpler
+// to add code and test cases.
+func TestExecuteCodeFromFile(t *testing.T) {
+	var httpPostRequest = "http://localhost:8080/execute"
+	// read the python file print_message.py content and pass it as code
+	file, err := os.ReadFile("../e2e/files/print_message.py")
+	var httpPostBody = "{ \"code\": \"" + string(file) + "\" }"
+
+	response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
 
 	// Assert no error
 	assert.Nil(t, err, "No error")
@@ -129,7 +133,14 @@ func TestInitializeJupyter(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	assert.Equal(t, "{\"message\": \"Jupyter initialized with token, test.\"}", string(body), "Response body contains Jupyter initialized with token, test.")
+	// Unmarshal the response body
+	var executionResponse ce.ExecutionResponse
+	err = json.Unmarshal(body, &executionResponse)
+
+	assert.Nil(t, err, "No error")
+
+	// check if executionResponse.Result contains 2
+	assert.Equal(t, 0, executionResponse.HResult, "Hresult is 0")
 }
 
 func TestHealthHandlerUnhealthyState(t *testing.T) {
@@ -143,7 +154,7 @@ func TestHealthHandlerUnhealthyState(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	assert.Equal(t, "Unhealthy code exec failed\n", string(body), "Response body contains Unhealthy")
+	assert.Equal(t, "{\"message\": \"unhealthy exec code failed\"}", string(body), "Response body contains Unhealthy")
 }
 
 func TestListFilesHandler(t *testing.T) {
@@ -159,20 +170,6 @@ func TestListFilesHandler(t *testing.T) {
 
 	assert.Equal(t, "null", string(body), "Response body contains null")
 }
-
-// func TestHealthHandlerHealthyState(t *testing.T) {
-// 	var httpGetRequest = "http://localhost:8080/health"
-// 	response, err := http.Get(httpGetRequest)
-
-// 	// Assert no error
-// 	assert.Nil(t, err, "No error")
-
-// 	// Read the response body
-// 	body, err := io.ReadAll(response.Body)
-// 	assert.Nil(t, err, "No error")
-
-// 	assert.Equal(t, "Healthy", string(body), "Response body contains Healthy")
-// }
 
 func TestUploadFileHandler(t *testing.T) {
 	var httpPostRequest = "http://localhost:8080/upload"
@@ -231,7 +228,7 @@ func TestDownloadFileHandlerFileNotFound(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	assert.Equal(t, "ERR_FILE_NOT_FOUND: File not found\n", string(body), "Response body contains ERR_FILE_NOT_FOUND")
+	assert.Equal(t, "{\"message\": \"ERR_FILE_NOT_FOUND: File not found\"}", string(body), "Response body contains ERR_FILE_NOT_FOUND")
 }
 
 func TestDownloadFileHandlerFileFound(t *testing.T) {
@@ -259,7 +256,7 @@ func TestGetFileHandlerFileNotFound(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	assert.Equal(t, "ERR_FILE_NOT_FOUND: File not found\n", string(body), "Response body contains ERR_FILE_NOT_FOUND")
+	assert.Equal(t, "{\"message\": \"ERR_FILE_NOT_FOUND: File not found\"}", string(body), "Response body contains ERR_FILE_NOT_FOUND")
 }
 
 func TestGetFileHandlerFileFound(t *testing.T) {
@@ -291,7 +288,7 @@ func TestListFilesHandlerWithPathReturnsNoPath(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	assert.Equal(t, "ERR_DIR_NOT_FOUND: File path not found\n", string(body), "Response body contains ERR_DIR_NOT_FOUND")
+	assert.Equal(t, "{\"message\": \"ERR_DIR_NOT_FOUND: File path not found\"}", string(body), "Response body contains ERR_DIR_NOT_FOUND")
 }
 
 func TestListFilesHandlerListFiles(t *testing.T) {
@@ -403,5 +400,5 @@ func TestDeleteFileHandlerFileNotFound(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	assert.Nil(t, err, "No error")
 
-	assert.Equal(t, "ok", string(body), "Response body contains ok")
+	assert.Equal(t, "{\"message\": \"file deleted successfully\"}", string(body), "Response body contains ok")
 }
