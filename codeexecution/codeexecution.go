@@ -21,9 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/gofrs/uuid"
@@ -112,7 +110,7 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// execute the code
-	response := ExecuteCode(kernelId, sessionId, codeString.Code)
+	response := executeCode(kernelId, sessionId, codeString.Code)
 
 	// convert the response to JSON and return
 	jsonResponse, err := json.Marshal(response)
@@ -123,7 +121,7 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	util.SendHTTPResponse(w, http.StatusOK, string(jsonResponse), false)
 }
 
-func ExecuteCode(kernelId, sessionId, code string) ExecutionResponse {
+func executeCode(kernelId, sessionId, code string) ExecutionResponse {
 	fmt.Println("Executing code in the session using WebSocket:")
 
 	responseChan := connectWebSocket(kernelId, sessionId, code)
@@ -220,9 +218,6 @@ func onOpen(ws *websocket.Conn, sessionId string, code string) []byte {
 func connectWebSocket(kernelID string, sessionID string, code string) <-chan ExecutionResponse {
 	responseChan := make(chan ExecutionResponse)
 
-	interruptSignal := make(chan os.Signal)
-	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGTERM)
-
 	u := url.URL{Scheme: "ws", Host: "localhost:8888", Path: "/api/kernels/" + kernelID + "/channels", RawQuery: "token=" + jupyterservices.Token}
 	err := error(nil)
 	if ws == nil {
@@ -294,17 +289,6 @@ func connectWebSocket(kernelID string, sessionID string, code string) <-chan Exe
 	}()
 
 	onOpen(ws, sessionID, code)
-
-	go func() {
-		select {
-		case <-interruptSignal:
-			log.Info().Msg("Interrupt signal received. Closing WebSocket...")
-			err := ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-			if err != nil {
-				log.Err(err).Msg("Error writing close message")
-			}
-		}
-	}()
 
 	return responseChan
 }

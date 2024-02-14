@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -35,8 +34,6 @@ func init() {
 	log.Logger = log.Output(os.Stdout)
 }
 
-var lastCodeHealthCheck bool
-
 func main() {
 	r := mux.NewRouter()
 	setToken()
@@ -48,7 +45,7 @@ func main() {
 	r.HandleFunc("/execute", codeexecution.Execute).Methods("POST")
 
 	// health check
-	r.HandleFunc("/health", healthHandler).Methods("GET")
+	r.HandleFunc("/health", codeexecution.HealthHandler).Methods("GET")
 	r.HandleFunc("/listfiles", fileservices.ListFilesHandler).Methods("GET")
 	r.HandleFunc("/listfiles/{path:.*}", fileservices.ListFilesHandler).Methods("GET")
 	r.HandleFunc("/upload", fileservices.UploadFileHandler).Methods("POST")
@@ -58,12 +55,12 @@ func main() {
 	r.HandleFunc("/delete/{filename}", fileservices.DeleteFileHandler).Methods("DELETE")
 	r.HandleFunc("/get/{filename}", fileservices.GetFileHandler).Methods("GET")
 
-	fmt.Println("Server listening on :8080")
+	fmt.Println("Server listening on :6000")
 
 	// Run health check in the background
-	go periodicCodeExecution()
+	go codeexecution.PeriodicCodeExecution()
 
-	http.ListenAndServe(":8080", r)
+	http.ListenAndServe(":6000", r)
 }
 
 // func to take token from the environment variable
@@ -85,35 +82,4 @@ func initializeJupyter(w http.ResponseWriter, r *http.Request) {
 		util.SendHTTPResponse(w, http.StatusInternalServerError, "error checking kernels"+err.Error(), true)
 	}
 	util.SendHTTPResponse(w, http.StatusOK, "jupyter initialized with token: "+jupyterservices.Token, true)
-}
-
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	if !lastCodeHealthCheck {
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "unhealthy exec code failed", true)
-		return
-	}
-	util.SendHTTPResponse(w, http.StatusOK, "healthy", true)
-}
-
-func periodicCodeExecution() {
-	time.Sleep(30 * time.Second)
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-
-	sampleCode := "1+1"
-	for range ticker.C {
-		kernelId, sessionId, err := jupyterservices.CheckKernels("")
-		if err != nil {
-			log.Error().Msg("Failed to check kernels: " + err.Error())
-			panic("Health Ping Failed with error: " + err.Error())
-		}
-		response := codeexecution.ExecuteCode(kernelId, sessionId, sampleCode)
-		if response.ErrorName == "" || response.Stderr == "" {
-			lastCodeHealthCheck = true
-			log.Info().Msg("Periodic code execution successful")
-		} else {
-			lastCodeHealthCheck = false
-			log.Error().Msg("Failed to execute code")
-		}
-	}
 }
