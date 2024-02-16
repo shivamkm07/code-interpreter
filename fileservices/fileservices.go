@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -41,24 +42,36 @@ type FileMetadata struct {
 }
 
 const (
-	FileType                 = "file"
-	DirPath                  = "/mnt/data"
-	DirType                  = "directory"
+	fileType                 = "file"
+	dirPath                  = "/mnt/data"
+	dirType                  = "directory"
 	ErrCodeFileNotFound      = "ERR_FILE_NOT_FOUND"
 	ErrCodeDirNotFound       = "ERR_DIR_NOT_FOUND"
 	ErrCodeFileAccess        = "ERR_FILE_ACCESS"
 	ErrCodeSymlinkNotAllowed = "ERR_SYMLINK_NOT_ALLOWED"
+	dirPathMaxDepth          = 5
 )
 
 func ListFilesHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	targetPath := DirPath
+	targetPath := dirPath
 
 	// supports both listFiles and listFiles/{path}
 	if customPath, ok := vars["path"]; ok && customPath != "" {
 		// clean the path to prevent directory traversal attacks
-		customPath = filepath.Clean("/" + customPath)
-		targetPath = filepath.Join(DirPath, customPath)
+		decodedPath, err := UnescapeAndCleanPath(customPath)
+		if err != nil {
+			log.Error().Err(err).Msg("Unable to url decode path")
+			http.Error(w, "Unable to url decode path", http.StatusBadRequest)
+			return
+		}
+		targetPath = filepath.Join(dirPath, decodedPath)
+		targetPath, err = CleanAndVerifyTargetPath(targetPath)
+		if err != nil {
+			log.Error().Err(err).Msg("Unable to clean and verify target path")
+			http.Error(w, "Unable to clean and verify target path", http.StatusBadRequest)
+			return
+		}
 	}
 
 	files, err := os.ReadDir(targetPath)
@@ -94,7 +107,7 @@ func ListFilesHandler(w http.ResponseWriter, r *http.Request) {
 		if fileInfo.IsDir() {
 			metadataList = append(metadataList, FileMetadata{
 				Name:        f.Name(),
-				Type:        DirType,
+				Type:        dirType,
 				Filename:    f.Name(), // remove this after CP change since we have Name
 				Size:        fileInfo.Size(),
 				LastModTime: fileInfo.ModTime(),
@@ -103,7 +116,7 @@ func ListFilesHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			metadataList = append(metadataList, FileMetadata{
 				Name:        f.Name(),
-				Type:        FileType,
+				Type:        fileType,
 				Filename:    f.Name(), // remove this after CP change since we have Name
 				Size:        fileInfo.Size(),
 				LastModTime: fileInfo.ModTime(),
@@ -127,13 +140,24 @@ func ListFilesHandler(w http.ResponseWriter, r *http.Request) {
 func UploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	// get custom path from URL
 	vars := mux.Vars(r)
-	targetPath := DirPath
+	targetPath := dirPath
 
 	// supports both uploadFile and uploadFile/{path}
 	if customPath, ok := vars["path"]; ok && customPath != "" {
 		// clean the path to prevent directory traversal attacks
-		customPath = filepath.Clean("/" + customPath)
-		targetPath = filepath.Join(DirPath, customPath)
+		decodedPath, err := UnescapeAndCleanPath(customPath)
+		if err != nil {
+			log.Error().Err(err).Msg("Unable to url decode path")
+			http.Error(w, "Unable to url decode path", http.StatusBadRequest)
+			return
+		}
+		targetPath = filepath.Join(dirPath, decodedPath)
+		targetPath, err = CleanAndVerifyTargetPath(targetPath)
+		if err != nil {
+			log.Error().Err(err).Msg("Unable to clean and verify target path")
+			http.Error(w, "Unable to clean and verify target path", http.StatusBadRequest)
+			return
+		}
 	}
 
 	err := r.ParseMultipartForm(250 << 20) // 250MB limit
@@ -226,12 +250,23 @@ func DownloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	// Use the decoded filename for further processing
 	filename := filepath.Base(decodedFilename)
 
-	targetPath := DirPath
+	targetPath := dirPath
 	// supports both dowloadFile and dowloadFile/{path}/{fileName}
 	if customPath, ok := vars["path"]; ok && customPath != "" {
 		// clean the path to prevent directory traversal attacks
-		customPath = filepath.Clean("/" + customPath)
-		targetPath = filepath.Join(DirPath, customPath)
+		decodedPath, err := UnescapeAndCleanPath(customPath)
+		if err != nil {
+			log.Error().Err(err).Msg("Unable to url decode path")
+			http.Error(w, "Unable to url decode path", http.StatusBadRequest)
+			return
+		}
+		targetPath = filepath.Join(dirPath, decodedPath)
+		targetPath, err = CleanAndVerifyTargetPath(targetPath)
+		if err != nil {
+			log.Error().Err(err).Msg("Unable to clean and verify target path")
+			http.Error(w, "Unable to clean and verify target path", http.StatusBadRequest)
+			return
+		}
 	}
 
 	filePath := filepath.Join(targetPath, filename)
@@ -273,7 +308,7 @@ func DeleteFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Use the decoded filename in further processing
 	filename := filepath.Base(decodedFilename)
-	filePath := filepath.Join(DirPath, filename)
+	filePath := filepath.Join(dirPath, filename)
 
 	// Check if the file exists
 	_, err = os.Lstat(filePath)
@@ -312,7 +347,7 @@ func GetFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Use the decoded filename in further processing
 	filename := filepath.Base(decodedFilename)
-	filePath := filepath.Join(DirPath, filename)
+	filePath := filepath.Join(dirPath, filename)
 
 	// if file exists, retrieve file information using os.Stat
 	fileInfo, err := os.Lstat(filePath)
@@ -347,4 +382,39 @@ func GetFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Info().Msg(fmt.Sprintf("Get file %s successfully.\n", filename))
 	util.SendHTTPResponse(w, http.StatusOK, string(response), false)
+}
+
+// unencodes each path segment, divided by a `/`. Also, sanitizes to start with / and not end with /
+// before: %C2%A5%C2%B7%C2%A3/te%24t/  (¥·£/te$t/)
+// after: /¥·£/te$t (backslashes on windows, due to filepath clean behavior)
+func UnescapeAndCleanPath(path string) (string, error) {
+	pathSegments := strings.Split(path, "/")
+	unescapedPath := ""
+	for _, pathSegment := range pathSegments {
+		if len(pathSegment) == 0 {
+			continue
+		}
+		decodedPathSegment, err := url.QueryUnescape(pathSegment)
+		if err != nil {
+			return "", err
+		}
+		unescapedPath += fmt.Sprintf("/%v", decodedPathSegment)
+	}
+
+	// clean the path to prevent directory traversal attacks
+	decodedPath := filepath.Clean(unescapedPath)
+	return decodedPath, nil
+}
+
+func CleanAndVerifyTargetPath(path string) (string, error) {
+	cleanedDirPath := filepath.Clean(dirPath)
+	cleaned := filepath.Clean(path)
+	if !strings.HasPrefix(cleaned, cleanedDirPath) {
+		return "", fmt.Errorf("failed to properly verify destination file path '%s'. filepath did not end up in the '%s' directory", cleaned, cleanedDirPath)
+	}
+	totalSegments := len(strings.Split(cleaned[1:], string(filepath.Separator)))
+	if totalSegments > dirPathMaxDepth {
+		return "", fmt.Errorf("destination file path '%s' is too long. directory depth should not exceed '%v', was '%v'", cleaned, dirPathMaxDepth, totalSegments)
+	}
+	return cleaned, nil
 }

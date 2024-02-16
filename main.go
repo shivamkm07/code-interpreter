@@ -15,7 +15,6 @@ package main
 // limitations under the License.
 
 import (
-	"fmt"
 	"net/http"
 	"os"
 
@@ -55,12 +54,24 @@ func main() {
 	r.HandleFunc("/delete/{filename}", fileservices.DeleteFileHandler).Methods("DELETE")
 	r.HandleFunc("/get/{filename}", fileservices.GetFileHandler).Methods("GET")
 
-	fmt.Println("Server listening on :6000")
-
 	// Run health check in the background
 	go codeexecution.PeriodicCodeExecution()
 
-	http.ListenAndServe(":6000", r)
+	var cfg = util.GetConfig()
+
+	if cfg.UseTls == "true" {
+		log.Info().Msg("Starting server on port :6000 with cert " + cfg.XdsCertFilePath + " and key " + cfg.XdsCertKeyFilePath)
+		error := http.ListenAndServeTLS(":6000", cfg.XdsCertFilePath, cfg.XdsCertKeyFilePath, r)
+		if error != nil {
+			log.Error().Msg("HTTPS Server Error: " + error.Error())
+		}
+	} else {
+		log.Info().Msg("Starting server on port :6000")
+		error := http.ListenAndServe(":6000", r)
+		if error != nil {
+			log.Error().Msg("HTTP Server Error: " + error.Error())
+		}
+	}
 }
 
 // func to take token from the environment variable
