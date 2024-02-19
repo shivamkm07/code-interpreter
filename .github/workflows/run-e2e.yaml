@@ -1,6 +1,10 @@
 name: JupyterPython E2E Tests
 
+# run the pipeline manually
+
 on:
+  workflow_dispatch:
+    
   push:
     branches:
       - main
