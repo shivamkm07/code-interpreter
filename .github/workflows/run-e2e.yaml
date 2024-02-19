@@ -1,7 +1,5 @@
 name: code-interpreter E2E Tests
 
-# run the pipeline manually
-
 on:
   workflow_dispatch:  
   push:
@@ -12,7 +10,7 @@ on:
       - main
       - feature/*
 
-jobs:   # This line was indented too far
+jobs:
   build:
     runs-on: ubuntu-latest
 
