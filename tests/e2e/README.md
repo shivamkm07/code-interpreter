@@ -28,15 +28,10 @@ To install and run the e2e test, follow these steps:
    - This step runs a Docker container for the project.
    - Command: `make run-jupyterpython-container`
 
-4. **Set up Go**
-   - This step sets up Go environment for running tests.
-   - Uses: [actions/setup-go@v2](https://github.com/actions/setup-go)
-   - Version: 1.20
-
-5. **Run tests**
+4. **Run tests**
    - This step runs end-to-end tests for the project.
    - Command: `make test-e2e-all`
 
-6. **Delete Docker container**
+5. **Delete Docker container**
    - This step deletes the Docker container used for the project.
-   - Command: `make delete-jupyterpython-container`
+   - Command: `make delete-jupyterpython-container-windows`

@@ -27,7 +27,7 @@ To install and run the project, follow these steps:
    ```
 3. Run the image:
    ```bash
-   docker run -p 8080:8080 jupyterpython
+   docker run -p 8080:6000 jupyterpython
    ```
 After running these steps, the the interpreter server should be accessible at `http://localhost:8080`.
 

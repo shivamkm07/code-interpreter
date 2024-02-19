@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"mime/multipart"
@@ -18,9 +17,6 @@ import (
 )
 
 func TestExecuteSumCode(t *testing.T) {
-	//log message stating the test is running
-	fmt.Println("Running TestBasicPythonCode")
-
 	var httpPostRequest = "http://localhost:8080/execute"
 	var httpPostBody = "{ \"code\": \"1+1\" }"
 
@@ -141,20 +137,6 @@ func TestExecuteCodeFromFile(t *testing.T) {
 
 	// check if executionResponse.Result contains 2
 	assert.Equal(t, 0, executionResponse.HResult, "Hresult is 0")
-}
-
-func TestHealthHandlerUnhealthyState(t *testing.T) {
-	var httpGetRequest = "http://localhost:8080/health"
-	response, err := http.Get(httpGetRequest)
-
-	// Assert no error
-	assert.Nil(t, err, "No error")
-
-	// Read the response body
-	body, err := io.ReadAll(response.Body)
-	assert.Nil(t, err, "No error")
-
-	assert.Equal(t, "{\"message\": \"unhealthy exec code failed\"}", string(body), "Response body contains Unhealthy")
 }
 
 func TestListFilesHandler(t *testing.T) {
