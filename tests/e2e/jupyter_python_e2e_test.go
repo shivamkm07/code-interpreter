@@ -17,7 +17,7 @@ import (
 )
 
 func TestExecuteSumCode(t *testing.T) {
-	var httpPostRequest = "http://localhost:8080/execute"
+	var httpPostRequest = "http://localhost:6000/execute"
 	var httpPostBody = "{ \"code\": \"1+1\" }"
 
 	response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
@@ -46,7 +46,7 @@ func TestExecuteSumCode(t *testing.T) {
 }
 
 func TestExecuteSleepAndPrintCode(t *testing.T) {
-	var httpPostRequest = "http://localhost:8080/execute"
+	var httpPostRequest = "http://localhost:6000/execute"
 	var httpPostBody = "{ \"code\": \"import time \\ntime.sleep(5) \\nprint(\\\"Done Sleeping\\\")\" }"
 
 	response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
@@ -69,7 +69,7 @@ func TestExecuteSleepAndPrintCode(t *testing.T) {
 }
 
 func TestExecuteHelloEarthCode(t *testing.T) {
-	var httpPostRequest = "http://localhost:8080/execute"
+	var httpPostRequest = "http://localhost:6000/execute"
 	var httpPostBody = "{ \"code\": \"print(\\\"Hello Earth\\\")\" }"
 
 	response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
@@ -90,7 +90,7 @@ func TestExecuteHelloEarthCode(t *testing.T) {
 }
 
 func TestExecuteMatplotlibCode(t *testing.T) {
-	var httpPostRequest = "http://localhost:8080/execute"
+	var httpPostRequest = "http://localhost:6000/execute"
 	var httpPostBody = "{ \"code\": \"import matplotlib.pyplot as plt \\nimport numpy as np \\nx = np.linspace(-2*np.pi, 2*np.pi, 1000) \\ny = np.tan(x) \\nplt.plot(x, y) \\nplt.ylim(-10, 10) \\nplt.title(\\\"Tangent Curve\\\") \\nplt.xlabel(\\\"x\\\") \\nplt.ylabel(\\\"tan(x)\\\") \\nplt.grid(True) \\nplt.show()\" }"
 
 	response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
@@ -115,7 +115,7 @@ func TestExecuteMatplotlibCode(t *testing.T) {
 // We could also add a generic execute code test case, which reads it from the .py files. That way it would be much simpler
 // to add code and test cases.
 func TestExecuteCodeFromFile(t *testing.T) {
-	var httpPostRequest = "http://localhost:8080/execute"
+	var httpPostRequest = "http://localhost:6000/execute"
 	// read the python file print_message.py content and pass it as code
 	file, err := os.ReadFile("../e2e/files/print_message.py")
 	var httpPostBody = "{ \"code\": \"" + string(file) + "\" }"
@@ -140,7 +140,7 @@ func TestExecuteCodeFromFile(t *testing.T) {
 }
 
 func TestListFilesHandler(t *testing.T) {
-	var httpGetRequest = "http://localhost:8080/listfiles"
+	var httpGetRequest = "http://localhost:6000/listfiles"
 	response, err := http.Get(httpGetRequest)
 
 	// Assert no error
@@ -154,7 +154,7 @@ func TestListFilesHandler(t *testing.T) {
 }
 
 func TestUploadFileHandler(t *testing.T) {
-	var httpPostRequest = "http://localhost:8080/upload"
+	var httpPostRequest = "http://localhost:6000/upload"
 	// Open the file
 	file, err := os.Open("../e2e/files/test.json")
 	if err != nil {
@@ -200,7 +200,7 @@ func TestUploadFileHandler(t *testing.T) {
 }
 
 func TestDownloadFileHandlerFileNotFound(t *testing.T) {
-	var httpGetRequest = "http://localhost:8080/download/file"
+	var httpGetRequest = "http://localhost:6000/download/file"
 	response, err := http.Get(httpGetRequest)
 
 	// Assert no error
@@ -214,7 +214,7 @@ func TestDownloadFileHandlerFileNotFound(t *testing.T) {
 }
 
 func TestDownloadFileHandlerFileFound(t *testing.T) {
-	var httpGetRequest = "http://localhost:8080/download/test.json"
+	var httpGetRequest = "http://localhost:6000/download/test.json"
 	response, err := http.Get(httpGetRequest)
 
 	// Assert no error
@@ -228,7 +228,7 @@ func TestDownloadFileHandlerFileFound(t *testing.T) {
 }
 
 func TestGetFileHandlerFileNotFound(t *testing.T) {
-	var httpGetRequest = "http://localhost:8080/get/file"
+	var httpGetRequest = "http://localhost:6000/get/file"
 	response, err := http.Get(httpGetRequest)
 
 	// Assert no error
@@ -242,7 +242,7 @@ func TestGetFileHandlerFileNotFound(t *testing.T) {
 }
 
 func TestGetFileHandlerFileFound(t *testing.T) {
-	var httpGetRequest = "http://localhost:8080/get/test.json"
+	var httpGetRequest = "http://localhost:6000/get/test.json"
 	response, err := http.Get(httpGetRequest)
 
 	// Assert no error
@@ -260,7 +260,7 @@ func TestGetFileHandlerFileFound(t *testing.T) {
 }
 
 func TestListFilesHandlerWithPathReturnsNoPath(t *testing.T) {
-	var httpGetRequest = "http://localhost:8080/listfiles/wrongpath"
+	var httpGetRequest = "http://localhost:6000/listfiles/wrongpath"
 	response, err := http.Get(httpGetRequest)
 
 	// Assert no error
@@ -274,7 +274,7 @@ func TestListFilesHandlerWithPathReturnsNoPath(t *testing.T) {
 }
 
 func TestListFilesHandlerListFiles(t *testing.T) {
-	var httpGetRequest = "http://localhost:8080/listfiles"
+	var httpGetRequest = "http://localhost:6000/listfiles"
 	response, err := http.Get(httpGetRequest)
 
 	// Assert no error
@@ -292,7 +292,7 @@ func TestListFilesHandlerListFiles(t *testing.T) {
 }
 
 func TestUploadFileHandlerWithPath(t *testing.T) {
-	var httpPostRequest = "http://localhost:8080/upload/path"
+	var httpPostRequest = "http://localhost:6000/upload/path"
 	// Open the file
 	file, err := os.Open("../e2e/files/file.txt")
 	if err != nil {
@@ -338,7 +338,7 @@ func TestUploadFileHandlerWithPath(t *testing.T) {
 }
 
 func TestListFilesHandlerWithPath(t *testing.T) {
-	var httpGetRequest = "http://localhost:8080/listfiles/path"
+	var httpGetRequest = "http://localhost:6000/listfiles/path"
 	response, err := http.Get(httpGetRequest)
 
 	// Assert no error
@@ -356,7 +356,7 @@ func TestListFilesHandlerWithPath(t *testing.T) {
 }
 
 func TestDownloadFileHandlerWithPath(t *testing.T) {
-	var httpGetRequest = "http://localhost:8080/download/path/file.txt"
+	var httpGetRequest = "http://localhost:6000/download/path/file.txt"
 	response, err := http.Get(httpGetRequest)
 
 	// Assert no error
@@ -371,7 +371,7 @@ func TestDownloadFileHandlerWithPath(t *testing.T) {
 
 // TODO: Add test to delete a file which is uploaded
 func TestDeleteFileHandlerFileNotFound(t *testing.T) {
-	var httpDeleteRequest = "http://localhost:8080/delete/test.json"
+	var httpDeleteRequest = "http://localhost:6000/delete/test.json"
 	request, err := http.NewRequest("DELETE", httpDeleteRequest, nil)
 	response, err := http.DefaultClient.Do(request)
 
