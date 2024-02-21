@@ -23,38 +23,29 @@ To install and run the project, follow these steps:
    ```
 2. Build container image
    ```bash
-   docker build -t jupyterpython . -t cappsinttestregistrypublic.azurecr.io/codeexecjupyter:v7758
+   docker build -t jupyterpython .
    ```
 3. Run the image:
    ```bash
-   docker run -p 6000:6000 -e OfficePy__Jupyter__Token=test -e JUPYTER_TOKEN=test -e OfficePy_LocalhostDeployment=true -e DATA_UPLOAD_PATH="/mnt/data" cappsinttestregistrypublic.azurecr.io/codeexecjupyter:v7758
+   docker run -p 6000:6000 jupyterpython
    ```
 After running these steps, the the interpreter server should be accessible at `http://localhost:6000`.
 
 ### Using the APIs
-1. Listing Files List all files in the `/mnt/data` directory:
+1. Execute Code - Pass Conditions:
    ```bash
-   curl http://localhost:6000/listfiles
+   curl -v -X 'POST' 'http://localhost:6000/execute'   -H 'Content-Type: application/json' -d '{ "code": "1+1" }'
+
+    curl -v -X 'POST' 'http://localhost:6000/execute'   -H 'Content-Type: application/json' -d '{ "code": "import time \ntime.sleep(5) \nprint(\"Done Sleeping\")" }'
+
+    curl -v -X 'POST' 'http://localhost:6000/execute'   -H 'Content-Type: application/json' -d '{ "code": "print(\"Hello Earth\")" }'
+
+    curl -v -X 'POST' 'http://localhost:6000/execute'   -H 'Content-Type: application/json'   -d '{"code": "import matplotlib.pyplot as plt \nimport numpy as np \nx = np.linspace(-2*np.pi, 2*np.pi, 1000) \ny = np.tan(x) \nplt.plot(x, y) \nplt.ylim(-10, 10) \nplt.title('\''Tangent Curve'\'') \nplt.xlabel('\''x'\'') \nplt.ylabel('\''tan(x)'\'') \nplt.grid(True) \nplt.show()"}'
    ```
 
-2. Upload a file to `/mnt/data`:
+2. Execute Code - Pass Conditions:
    ```bash
-   curl -X POST -F "file=@/path/to/your/file.txt" http://localhost:6000/upload
-   ```
-  
-3. Download a file from `/mnt/data`:
-   ```bash
-   curl -O http://localhost:6000/download/filename.txt
-   ```
-
-4. Execute Code:
-   ```bash
-   curl -H "Authorization: ApiKey /computeresourcekey123" -X 'POST'   'http://localhost:6000/execute'   -H 'Content-Type: application/json' -d '{ "code": "1+1" }'
-   ```
-
-5. Validate the Health of the container:
-   ```bash
-   curl http://localhost:6000/healthz -v
+    curl -v -X 'POST' 'http://localhost:6000/execute'   -H 'Content-Type: application/json' -d '{ "code": "printf(\"Hello Earth\")" }'
    ```
 
 # Contributing
