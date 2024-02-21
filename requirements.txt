@@ -38,11 +38,3 @@ pydub
 soundfile
 mutagen
 wave
-win32com
-mysql
-bpy
-numpy_financial
-gensim.summarization
-discord
-pymongo
-torchvision
