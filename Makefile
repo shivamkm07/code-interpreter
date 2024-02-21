@@ -20,16 +20,12 @@ test-e2e-all:
 	go test ./tests/e2e/...
 
 delete-jupyterpython-container:
-	 docker rmi -f jupyterpython
-	 @CONTAINER_ID=$$(docker ps -a -q --filter ancestor=jupyterpython); \
-	 echo "Container ID: $$CONTAINER_ID"; \
-	 docker rm -f $$CONTAINER_ID
+	docker rmi -f jupyterpython
+	CONTAINER_ID=$$(docker ps -a -q --filter ancestor=jupyterpython); \
+	echo "Container ID: $$CONTAINER_ID"; \
+	if [ -n "$$CONTAINER_ID" ]; then \
+		docker rm -f $$CONTAINER_ID; \
+	fi
 
 delete-jupyterpython-image:
 	docker rmi -f jupyterpython
-
-delete-jupyterpython-container-windows:
-	powershell -Command "$$CONTAINER_ID = docker ps -a -q --filter ancestor=jupyterpython; docker rm -f $$CONTAINER_ID;"
-	
-
-	
