@@ -1,13 +1,14 @@
-name: JupyterPython E2E Tests
+name: code-interpreter E2E Tests
 
 on:
+  workflow_dispatch:  
   push:
     branches:
       - main
   pull_request:
     branches: 
-        - main
-        - feature/*
+      - main
+      - feature/*
 
 jobs:
   build:
@@ -22,17 +23,21 @@ jobs:
 
     - name: Build Docker image
       run: make build-jupyterpython-image
-
+    - name: Delete running Docker containers
+      run: |
+        docker stop $(docker ps -q)
+        docker rm $(docker ps -a -q)
     - name: Run Docker container
-      run: make run-jupyterpython-container
-
+      run: | # Run the container in the background
+        make run-jupyterpython-container &
+        sleep 10
+        while ! docker ps | grep 'jupyterpython'; do sleep 60; done
     - name: Set up Go
-      uses: actions/setup-go@v2
+      id: setup-go
+      uses: actions/setup-go@v5
       with:
-        go-version: 1.20
-
+        go-version-file: "go.mod"
     - name: Run tests
       run: make test-e2e-all
-
     - name: Delete Docker container
       run: make delete-jupyterpython-container

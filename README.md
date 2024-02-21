@@ -27,25 +27,25 @@ To install and run the project, follow these steps:
    ```
 3. Run the image:
    ```bash
-   docker run -p 8080:8080 jupyterpython
+   docker run -p 6000:6000 jupyterpython
    ```
-After running these steps, the the interpreter server should be accessible at `http://localhost:8080`.
+After running these steps, the the interpreter server should be accessible at `http://localhost:6000`.
 
 ### Using the APIs
 1. Execute Code - Pass Conditions:
    ```bash
-   curl -v -X 'POST' 'http://localhost:8080/execute'   -H 'Content-Type: application/json' -d '{ "code": "1+1" }'
+   curl -v -X 'POST' 'http://localhost:6000/execute'   -H 'Content-Type: application/json' -d '{ "code": "1+1" }'
 
-    curl -v -X 'POST' 'http://localhost:8080/execute'   -H 'Content-Type: application/json' -d '{ "code": "import time \ntime.sleep(5) \nprint(\"Done Sleeping\")" }'
+    curl -v -X 'POST' 'http://localhost:6000/execute'   -H 'Content-Type: application/json' -d '{ "code": "import time \ntime.sleep(5) \nprint(\"Done Sleeping\")" }'
 
-    curl -v -X 'POST' 'http://localhost:8080/execute'   -H 'Content-Type: application/json' -d '{ "code": "print(\"Hello Earth\")" }'
+    curl -v -X 'POST' 'http://localhost:6000/execute'   -H 'Content-Type: application/json' -d '{ "code": "print(\"Hello Earth\")" }'
 
-    curl -v -X 'POST' 'http://localhost:8080/execute'   -H 'Content-Type: application/json'   -d '{"code": "import matplotlib.pyplot as plt \nimport numpy as np \nx = np.linspace(-2*np.pi, 2*np.pi, 1000) \ny = np.tan(x) \nplt.plot(x, y) \nplt.ylim(-10, 10) \nplt.title('\''Tangent Curve'\'') \nplt.xlabel('\''x'\'') \nplt.ylabel('\''tan(x)'\'') \nplt.grid(True) \nplt.show()"}'
+    curl -v -X 'POST' 'http://localhost:6000/execute'   -H 'Content-Type: application/json'   -d '{"code": "import matplotlib.pyplot as plt \nimport numpy as np \nx = np.linspace(-2*np.pi, 2*np.pi, 1000) \ny = np.tan(x) \nplt.plot(x, y) \nplt.ylim(-10, 10) \nplt.title('\''Tangent Curve'\'') \nplt.xlabel('\''x'\'') \nplt.ylabel('\''tan(x)'\'') \nplt.grid(True) \nplt.show()"}'
    ```
 
 2. Execute Code - Pass Conditions:
    ```bash
-    curl -v -X 'POST' 'http://localhost:8080/execute'   -H 'Content-Type: application/json' -d '{ "code": "printf(\"Hello Earth\")" }'
+    curl -v -X 'POST' 'http://localhost:6000/execute'   -H 'Content-Type: application/json' -d '{ "code": "printf(\"Hello Earth\")" }'
    ```
 
 # Contributing

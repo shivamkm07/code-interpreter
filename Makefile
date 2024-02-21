@@ -13,7 +13,7 @@ build-jupyterpython-image:
 	docker build -t jupyterpython .
 
 run-jupyterpython-container:
-	docker run -p 8080:8080 jupyterpython
+	docker run -p 6000:6000 jupyterpython
 
 # start all e2e tests
 test-e2e-all:
