@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -384,3 +385,40 @@ func TestDeleteFileHandlerFileNotFound(t *testing.T) {
 
 	assert.Equal(t, "{\"message\": \"file deleted successfully\"}", string(body), "Response body contains ok")
 }
+
+// Test all python packages under requirements.txt are successfully imported
+func TestImportPythonPackages(t *testing.T) {
+	// Open the requirements.txt file
+	file, err := os.Open("../e2e/files/requirements.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	// scan the file
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		// execute the import statement for each package
+		var httpPostRequest = "http://localhost:6000/execute"
+		var httpPostBody = "{ \"code\": \"import " + scanner.Text() + "\" }"
+
+		response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
+
+		// Assert no error
+		assert.Nil(t, err, "No error")
+
+		// Read the response body
+		body, err := io.ReadAll(response.Body)
+		assert.Nil(t, err, "No error")
+
+		// Unmarshal the response body
+		var executionResponse ce.ExecutionResponse
+		err = json.Unmarshal(body, &executionResponse)
+
+		assert.Nil(t, err, "No error")
+		assert.Equal(t, 0, executionResponse.HResult, "Hresult is 0")
+	}
+}
+
+// python code to print files in the current directory
+var testListFilesCode = "import os\nfor root, dirs, files in os.walk('.'): \n    for file in files: \n        print(file)"

@@ -82,15 +82,18 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	if r.Body == nil {
+	// handle if request does not have any data
+	if r.ContentLength == 0 || r.Body == nil {
 		log.Err(nil).Msg("Request body is empty")
 		util.SendHTTPResponse(w, http.StatusUnsupportedMediaType, "request body is empty", true)
+		return
 	}
 
 	code, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Err(err).Msg("Error reading request body")
 		util.SendHTTPResponse(w, http.StatusBadRequest, "error reading request body"+err.Error(), true)
+		return
 	}
 
 	// convert the byte array to JSON and read the value for code
@@ -99,6 +102,7 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Err(err).Msg("Error unmarshaling JSON")
 		util.SendHTTPResponse(w, http.StatusBadRequest, "error unmarshaling JSON"+err.Error(), true)
+		return
 	}
 
 	// get the kernelId
@@ -106,6 +110,7 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Err(err).Msg("Error checking kernels")
 		util.SendHTTPResponse(w, http.StatusInternalServerError, "error checking kernels"+err.Error(), true)
+		return
 	}
 
 	// This is just for testing purposes
