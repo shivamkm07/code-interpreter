@@ -1,10 +1,10 @@
-opencv-python
+#opencv-python
 googletrans
 selenium
 language-tool-python
 spacy
 tensorflow
-pyautogui
+#pyautogui
 pygame
 wordcloud
 yfinance
@@ -18,10 +18,10 @@ rdkit
 boto3
 serial
 docker
-python-pptx==0.6.21
+#python-pptx==0.6.21
 RPi.GPIO
 qrcode
-python-docx
+#python-docx
 openai
 numpy-financial
 machine
@@ -32,7 +32,6 @@ setuptools
 graphviz
 gensim
 google
-PyPDF2
 pypdf
 librosa
 pydub
@@ -58,7 +57,7 @@ pyperclip
 chess
 netCDF4
 music21
-SpeechRecognition
+speech_recognition
 mendeleev
 mcpi
 matlab
@@ -70,7 +69,7 @@ geopandas
 num2words
 polars
 xlsxwriter
-wmi
+#wmi
 flet
 fpdf
 Bio

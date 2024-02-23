@@ -8,6 +8,7 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"strings"
 	"testing"
 
 	"os"
@@ -399,12 +400,17 @@ func TestImportPythonPackages(t *testing.T) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		// execute the import statement for each package
+		var packageName = scanner.Text()
+
+		// if package name contains a hypen, replace it with an underscore
+		packageName = strings.Replace(packageName, "-", "_", -1)
+
 		var httpPostRequest = "http://localhost:6000/execute"
-		var httpPostBody = "{ \"code\": \"import " + scanner.Text() + "\" }"
+		var httpPostBody = "{ \"code\": \"import " + packageName + "\" }"
 
 		response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
 		if err != nil {
-			t.Fatal(err, "Error in executing the import statement for package: ", scanner.Text())
+			t.Error(err, "Error in executing the import statement for package: PyPDF2")
 		}
 
 		// Assert no error
@@ -417,8 +423,14 @@ func TestImportPythonPackages(t *testing.T) {
 		// Unmarshal the response body
 		var executionResponse ce.ExecutionResponse
 		err = json.Unmarshal(body, &executionResponse)
+		if err != nil {
+			t.Error(err, "Error in unmarshalling the response body")
+		}
 
-		assert.Nil(t, err, "No error")
-		assert.Equal(t, 0, executionResponse.HResult, "Hresult is 0")
+		if executionResponse.ErrorName != "" || executionResponse.ErrorMessage != "" || executionResponse.Stdout != "" || executionResponse.Stderr != "" {
+			t.Error("Error in executing the import statement for package: ", scanner.Text())
+		}
+
+		assert.Equal(t, 0, executionResponse.HResult)
 	}
 }
