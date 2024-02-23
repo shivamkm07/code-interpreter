@@ -85,7 +85,7 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	// handle if request does not have any data
 	if r.ContentLength == 0 || r.Body == nil {
 		log.Err(nil).Msg("Request body is empty")
-		util.SendHTTPResponse(w, http.StatusUnsupportedMediaType, "request body is empty", true)
+		util.SendHTTPResponse(w, http.StatusBadRequest, "request body is empty", true)
 		return
 	}
 
