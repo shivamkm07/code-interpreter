@@ -1,6 +1,8 @@
 # Build Stage
 FROM golang:1.18 AS builder
 
+RUN echo "validating if Dockerfile is picked from current branch"
+
 WORKDIR /app
 
 # Copy go mod and sum files
