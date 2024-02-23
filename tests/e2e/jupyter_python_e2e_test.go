@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
 	"log"
 	"mime/multipart"
 	"net/http"
+	"strings"
 	"testing"
 
 	"os"
@@ -383,4 +385,52 @@ func TestDeleteFileHandlerFileNotFound(t *testing.T) {
 	assert.Nil(t, err, "No error")
 
 	assert.Equal(t, "{\"message\": \"file deleted successfully\"}", string(body), "Response body contains ok")
+}
+
+// Test all python packages under requirements.txt are successfully imported
+func TestImportPythonPackages(t *testing.T) {
+	// Open the requirements.txt file
+	file, err := os.Open("../e2e/files/requirements.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	// scan the file
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		// execute the import statement for each package
+		var packageName = scanner.Text()
+
+		// if package name contains a hypen, replace it with an underscore
+		packageName = strings.Replace(packageName, "-", "_", -1)
+
+		var httpPostRequest = "http://localhost:6000/execute"
+		var httpPostBody = "{ \"code\": \"import " + packageName + "\" }"
+
+		response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
+		if err != nil {
+			t.Error(err, "Error in executing the import statement for package: PyPDF2")
+		}
+
+		// Assert no error
+		assert.Nil(t, err, "No error")
+
+		// Read the response body
+		body, err := io.ReadAll(response.Body)
+		assert.Nil(t, err, "No error")
+
+		// Unmarshal the response body
+		var executionResponse ce.ExecutionResponse
+		err = json.Unmarshal(body, &executionResponse)
+		if err != nil {
+			t.Error(err, "Error in unmarshalling the response body")
+		}
+
+		if executionResponse.ErrorName != "" || executionResponse.ErrorMessage != "" || executionResponse.Stdout != "" || executionResponse.Stderr != "" {
+			t.Error("Error in executing the import statement for package: ", packageName)
+		}
+
+		assert.Equal(t, 0, executionResponse.HResult)
+	}
 }

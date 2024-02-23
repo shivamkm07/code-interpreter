@@ -377,7 +377,7 @@ func TrimAndAppendEllipses(sb *strings.Builder, maxLength int) {
 		return
 	}
 
-	if sb.Len() > maxLength {
+	if sb.Len() > 0 && sb.Len() > maxLength {
 		appendEllipses := false
 		len := maxLength
 		if len >= 3 {
@@ -389,8 +389,14 @@ func TrimAndAppendEllipses(sb *strings.Builder, maxLength int) {
 			len = len - 1
 		}
 
+		str := sb.String()
+		strLength := StringLength(&str)
+		if len > strLength {
+			len = strLength
+		}
+		substring := str[:len]
 		sb.Reset()
-		sb.WriteString(sb.String()[:len])
+		sb.WriteString(substring)
 		if appendEllipses {
 			sb.WriteString("...")
 		}

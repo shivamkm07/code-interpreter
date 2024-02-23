@@ -81,10 +81,28 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	// read code from the request body
 	lock.Lock()
 	defer lock.Unlock()
+
+	// handle if request does not have any data
+	if r.ContentLength == 0 || r.Body == nil {
+		log.Err(nil).Msg("Request body is empty")
+		util.SendHTTPResponse(w, http.StatusBadRequest, "request body is empty", true)
+		return
+	}
+
 	code, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Err(err).Msg("Error reading request body")
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error reading request body"+err.Error(), true)
+		util.SendHTTPResponse(w, http.StatusBadRequest, "error reading request body"+err.Error(), true)
+		return
+	}
+
+	// convert the byte array to JSON and read the value for code
+	var codeString ExecutionRequest
+	err = json.Unmarshal(code, &codeString)
+	if err != nil {
+		log.Err(err).Msg("Error unmarshaling JSON")
+		util.SendHTTPResponse(w, http.StatusBadRequest, "error unmarshaling JSON"+err.Error(), true)
+		return
 	}
 
 	// get the kernelId
@@ -92,6 +110,7 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Err(err).Msg("Error checking kernels")
 		util.SendHTTPResponse(w, http.StatusInternalServerError, "error checking kernels"+err.Error(), true)
+		return
 	}
 
 	// This is just for testing purposes
@@ -100,14 +119,6 @@ func Execute(w http.ResponseWriter, r *http.Request) {
 	// 	sampleCode := "print('Hello, Earth!')" //"import matplotlib.pyplot as plt \nimport numpy as np \nx = np.linspace(-2*np.pi, 2*np.pi, 1000) \ny = np.tan(x) \nplt.plot(x, y) \nplt.ylim(-10, 10) \nplt.title('Tangent Curve') \nplt.xlabel('x') \nplt.ylabel('tan(x)') \nplt.grid(True) \nplt.show()" //"1+3" //"print('Hello, Jupyter!')"
 	// 	code = []byte(sampleCode)
 	// }
-
-	// conver the byte array to JSON and read the value for code
-	var codeString ExecutionRequest
-	err = json.Unmarshal(code, &codeString)
-	if err != nil {
-		log.Err(err).Msg("Error unmarshaling JSON")
-		util.SendHTTPResponse(w, http.StatusInternalServerError, "error unmarshaling JSON"+err.Error(), true)
-	}
 
 	// execute the code
 	response := executeCode(kernelId, sessionId, codeString.Code)
