@@ -28,7 +28,6 @@ soundfile
 mutagen
 wave
 wordcloud
-yfinance
 pyspark
 docx
 pypdf
