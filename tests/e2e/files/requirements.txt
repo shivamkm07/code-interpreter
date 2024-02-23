@@ -2,9 +2,7 @@ googletrans
 selenium
 language-tool-python
 spacy
-pygame
 wordcloud
-yfinance
 pytesseract
 moviepy
 pyspark
@@ -19,7 +17,6 @@ qrcode
 openai
 numpy-financial
 inflect
-keras
 streamlit
 setuptools
 graphviz
@@ -27,7 +24,6 @@ gensim
 google
 pypdf
 librosa
-pydub
 soundfile
 mutagen
 wave
