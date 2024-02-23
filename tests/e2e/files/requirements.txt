@@ -1,10 +1,7 @@
-#opencv-python
 googletrans
 selenium
 language-tool-python
 spacy
-tensorflow
-#pyautogui
 pygame
 wordcloud
 yfinance
@@ -18,13 +15,9 @@ rdkit
 boto3
 serial
 docker
-#python-pptx==0.6.21
-RPi.GPIO
 qrcode
-#python-docx
 openai
 numpy-financial
-machine
 inflect
 keras
 streamlit
@@ -42,7 +35,7 @@ wordcloud
 yfinance
 pyspark
 docx
-PyPDF2
+pypdf
 discord
 board
 pymongo
@@ -69,7 +62,6 @@ geopandas
 num2words
 polars
 xlsxwriter
-#wmi
 flet
 fpdf
 Bio

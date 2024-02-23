@@ -428,7 +428,7 @@ func TestImportPythonPackages(t *testing.T) {
 		}
 
 		if executionResponse.ErrorName != "" || executionResponse.ErrorMessage != "" || executionResponse.Stdout != "" || executionResponse.Stderr != "" {
-			t.Error("Error in executing the import statement for package: ", scanner.Text())
+			t.Error("Error in executing the import statement for package: ", packageName)
 		}
 
 		assert.Equal(t, 0, executionResponse.HResult)
