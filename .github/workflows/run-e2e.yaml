@@ -42,4 +42,5 @@ jobs:
     - name: Run tests
       run: make test-e2e-all
     - name: Delete Docker container
+      if: always()
       run: make delete-jupyterpython-container
