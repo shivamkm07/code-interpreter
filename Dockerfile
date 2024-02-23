@@ -1,7 +1,7 @@
 # Build Stage
 FROM golang:1.18 AS builder
 
-RUN echo "validating if Dockerfile is picked from current branch"
+RUN echo "validating current branch"
 
 WORKDIR /app
 
