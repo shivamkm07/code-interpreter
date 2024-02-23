@@ -403,6 +403,9 @@ func TestImportPythonPackages(t *testing.T) {
 		var httpPostBody = "{ \"code\": \"import " + scanner.Text() + "\" }"
 
 		response, err := http.Post(httpPostRequest, "application/json", bytes.NewBufferString(httpPostBody))
+		if err != nil {
+			t.Fatal(err, "Error in executing the import statement for package: ", scanner.Text())
+		}
 
 		// Assert no error
 		assert.Nil(t, err, "No error")
@@ -419,6 +422,3 @@ func TestImportPythonPackages(t *testing.T) {
 		assert.Equal(t, 0, executionResponse.HResult, "Hresult is 0")
 	}
 }
-
-// python code to print files in the current directory
-var testListFilesCode = "import os\nfor root, dirs, files in os.walk('.'): \n    for file in files: \n        print(file)"

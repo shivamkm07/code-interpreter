@@ -377,7 +377,7 @@ func TrimAndAppendEllipses(sb *strings.Builder, maxLength int) {
 		return
 	}
 
-	if sb.Len() > maxLength {
+	if sb.Len() > 0 && sb.Len() > maxLength {
 		appendEllipses := false
 		len := maxLength
 		if len >= 3 {
