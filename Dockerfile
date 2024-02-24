@@ -66,7 +66,7 @@ ENV PATH="/app/miniconda/bin:${PATH}"
 COPY codeexecjupyter.yml /app/codeexecjupyter.yml
 RUN conda env create --prefix /app/condaapp --file /app/codeexecjupyter.yml --force
 
-# # Make RUN commands use the officepy conda environment:
+# # Make RUN commands use the conda environment:
 SHELL ["conda", "run", "-p", "/app/condaapp", "/bin/bash", "-c"]
 
 # copy the requirements file
