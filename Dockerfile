@@ -35,7 +35,8 @@ RUN apt-get update && apt-get install -y \
     gawk \
     autoconf \
     net-tools \
-    gcc make build-essential
+    gcc make build-essential \
+    libgl1-mesa-glx
 
 # Set the Python version you want to install
 ARG PYTHON_VERSION=3.12.1
