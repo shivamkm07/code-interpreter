@@ -40,8 +40,8 @@ delete-perfapp-container:
 	docker rm -f perfapp-container
 
 install-perf-deps:
-	apt install hey
+	curl https://hey-release.s3.us-east-2.amazonaws.com/hey_linux_amd64 -o hey
 
 run-perf-test: install-perf-deps
-	hey -n 5 -c 5 -m POST -T 'application/json' -d '{"code":"1+2"}' http://localhost:8080/execute
+	./hey -n 5 -c 5 -m POST -T 'application/json' -d '{"code":"1+2"}' http://localhost:8080/execute
 	
