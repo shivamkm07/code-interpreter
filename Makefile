@@ -7,6 +7,7 @@ export GO111MODULE ?= on
 export GOPROXY ?= https://proxy.golang.org
 export GOSUMDB ?= sum.golang.org
 TEST_OUTPUT_FILE_PREFIX ?= ./test_report
+K6_VERSION ?= 0.49.0
 
 
 build-jupyterpython-image:
@@ -40,10 +41,15 @@ delete-perfapp-container:
 	docker rm -f perfapp-container
 
 install-perf-deps:
-	curl https://hey-release.s3.us-east-2.amazonaws.com/hey_linux_amd64 -o hey
-	chmod +x hey
+	# curl https://hey-release.s3.us-east-2.amazonaws.com/hey_linux_amd64 -o hey
+	# chmod +x hey
+	wget https://github.com/grafana/k6/releases/download/v$(K6_VERSION)/k6-v$(K6_VERSION)-linux-amd64.tar.gz
+	tar -xvf k6-v$(K6_VERSION)-linux-amd64.tar.gz --strip-components=1
+	rm k6-v$(K6_VERSION)-linux-amd64.tar.gz
+	chmod +x k6
+
 
 run-perf-test: install-perf-deps
-	curl -X POST -H 'Content-Type: application/json' -d '{"code":"1+2"}' localhost:8080/execute
 	# ./hey -n 5 -c 5 -m POST -T 'application/json' -d '{"code":"1+2"}' http://localhost:8080/execute
+	./k6 run tests/perf/test.js
 	
