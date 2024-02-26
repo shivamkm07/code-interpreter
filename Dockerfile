@@ -35,7 +35,8 @@ RUN apt-get update && apt-get install -y \
     gawk \
     autoconf \
     net-tools \
-    gcc make build-essential
+    gcc make build-essential \
+    libgl1-mesa-glx
 
 # Set the Python version you want to install
 ARG PYTHON_VERSION=3.12.1
@@ -66,7 +67,7 @@ ENV PATH="/app/miniconda/bin:${PATH}"
 COPY codeexecjupyter.yml /app/codeexecjupyter.yml
 RUN conda env create --prefix /app/condaapp --file /app/codeexecjupyter.yml --force
 
-# # Make RUN commands use the officepy conda environment:
+# # Make RUN commands use the conda environment:
 SHELL ["conda", "run", "-p", "/app/condaapp", "/bin/bash", "-c"]
 
 # copy the requirements file
