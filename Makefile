@@ -44,5 +44,6 @@ install-perf-deps:
 	chmod +x hey
 
 run-perf-test: install-perf-deps
-	./hey -n 5 -c 5 -m POST -T 'application/json' -d '{"code":"1+2"}' http://localhost:8080/execute
+	curl -X POST -H 'Content-Type: application/json' -d '{"code":"1+2"}' localhost:8080/execute
+	# ./hey -n 5 -c 5 -m POST -T 'application/json' -d '{"code":"1+2"}' http://localhost:8080/execute
 	
