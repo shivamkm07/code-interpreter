@@ -1,0 +1,49 @@
+name: perf-test
+on:
+  workflow_dispatch: { }
+  push:
+    branches:
+      - main
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Set ACCESS_TOKEN
+        uses: azure/CLI@v1
+        with:
+          azcliversion: latest
+          inlineScript: |
+            export ACCESS_TOKEN=$(az account get-access-token --resource https://acasessions.io | jq -r .accessToken)
+            echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
+      
+      - name: Print access_token
+        run: echo $ACCESS_TOKEN
+        env: 
+          ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
+
+      - name: Build and Run perf test app
+        run: |
+          make run-perfapp-container
+        env:
+          ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
+      
+      - name: Run perf test
+        run: |
+          make run-perf-test
+      
+      - name: Delete perf test app
+        if: always()
+        run: |
+          make delete-perfapp-container

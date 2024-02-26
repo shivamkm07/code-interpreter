@@ -29,3 +29,19 @@ delete-jupyterpython-container:
 
 delete-jupyterpython-image:
 	docker rmi -f jupyterpython
+
+build-perfapp-image:
+	docker build -t perfapp:latest tests/perf/app/
+
+run-perfapp-container: build-perfapp-image
+	docker run --name perfapp-container -d --rm -p 8080:8080 -e ACCESS_TOKEN=$(ACCESS_TOKEN) perfapp:latest
+
+delete-perfapp-container:
+	docker rm -f perfapp-container
+
+install-perf-deps:
+	apt install hey
+
+run-perf-test: install-perf-deps
+	hey -n 5 -c 5 -m POST -T 'application/json' -d '{"code":"1+2"}' http://localhost:8080/execute
+	
