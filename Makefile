@@ -41,6 +41,7 @@ delete-perfapp-container:
 
 install-perf-deps:
 	curl https://hey-release.s3.us-east-2.amazonaws.com/hey_linux_amd64 -o hey
+	chmod +x hey
 
 run-perf-test: install-perf-deps
 	./hey -n 5 -c 5 -m POST -T 'application/json' -d '{"code":"1+2"}' http://localhost:8080/execute
