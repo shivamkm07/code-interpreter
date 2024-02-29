@@ -49,6 +49,10 @@ jobs:
         run: |
           make run-perf-test
 
+      - name: Collect container logs
+        run: |
+          make log-perfapp-container > ${{ env.TEST_OUTPUT_FILE_PREFIX }}_logs.txt
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

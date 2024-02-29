@@ -37,6 +37,9 @@ build-perfapp-image:
 run-perfapp-container: build-perfapp-image
 	docker run --name perfapp-container -d --rm -p 8080:8080 -e ACCESS_TOKEN=$(ACCESS_TOKEN) perfapp:latest
 
+log-perfapp-container:
+	docker logs perfapp-container
+
 delete-perfapp-container:
 	docker rm -f perfapp-container
 
