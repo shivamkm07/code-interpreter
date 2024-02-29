@@ -20,6 +20,12 @@ export const options = {
         checks: ['rate==1'],
     },
     scenarios: {
+        // test: {
+        //   executor: 'shared-iterations',
+        //   vus: 1,
+        //   iterations: 10,
+        //   maxDuration: '30s',
+        // },
         ramping: {
           executor: 'ramping-arrival-rate',
           startRate: 5,
@@ -50,7 +56,6 @@ function execute() {
     };
   
     const res = http.post(url, payload, params);
-    // console.log("response received: ", res)
     return res;
 }
 
@@ -95,8 +100,11 @@ function addTrendMetrics(metrics, prefix, values) {
   metrics.push([prefix + 'MAX', values.max.toFixed(2) + ' ms']);
   metrics.push([prefix + 'MED', values.med.toFixed(2) + ' ms']);
   metrics.push([prefix + 'AVG', values.avg.toFixed(2) + ' ms']);
-  metrics.push([prefix + 'P95', values['p(95)'].toFixed(2) + ' ms']);
   metrics.push([prefix + 'P90', values['p(90)'].toFixed(2) + ' ms']);
+  metrics.push([prefix + 'P95', values['p(95)'].toFixed(2) + ' ms']);
+  metrics.push([prefix + 'P98', values['p(98)'].toFixed(2) + ' ms']);
+  metrics.push([prefix + 'P99', values['p(99)'].toFixed(2) + ' ms']);
+  metrics.push([prefix + 'P99.9', values['p(99.9)'].toFixed(2) + ' ms']);
 }
 
 function addCounterMetrics(metrics, prefix, values) {
