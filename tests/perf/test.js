@@ -20,46 +20,18 @@ export const options = {
         checks: ['rate==1'],
     },
     scenarios: {
-        // base: {
-        //     executor: 'shared-iterations',
-        //     vus: 1,
-        //     iterations: 10,
-        //     maxDuration: '100s',
-        // },
-        // qps1: {
-        //   executor: 'constant-arrival-rate',
-        //   duration: '60s',
-        //   rate: 1,
-        //   timeUnit: '1s',
-        //   preAllocatedVUs: 1,
-        // },
-        qps5: {
-          executor: 'constant-arrival-rate',
-          duration: '60s',
-          rate: 5,
-          timeUnit: '1s',
-          preAllocatedVUs: 5,
-        },
-        qps10: {
-          executor: 'constant-arrival-rate',
-          duration: '60s',
-          rate: 10,
-          timeUnit: '1s',
-          preAllocatedVUs: 10,
-        },
-        qps15: {
-          executor: 'constant-arrival-rate',
-          duration: '60s',
-          rate: 15,
-          timeUnit: '1s',
-          preAllocatedVUs: 15,
-        },
-        qps20: {
-          executor: 'constant-arrival-rate',
-          duration: '60s',
-          rate: 20,
+        ramping: {
+          executor: 'ramping-arrival-rate',
+          startRate: 5,
           timeUnit: '1s',
           preAllocatedVUs: 20,
+          stages: [
+            { target: 5, duration: '1m' },
+            { target: 10, duration: '1m' },
+            { target: 10, duration: '1m' },
+            { target: 15, duration: '1m' },
+            { target: 15, duration: '1m' },
+          ],
         },
     },
 };
