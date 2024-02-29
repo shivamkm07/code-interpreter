@@ -10,9 +10,12 @@ jobs:
   validate:
     name: Validate
     runs-on: ubuntu-latest
-    env:
-      TEST_OUTPUT_FILE_PREFIX: test_perf_report
     steps:
+      - name: Setup test output
+        run: |
+          export TEST_OUTPUT_FILE_PREFIX=$GITHUB_WORKSPACE/test_perf_report
+          echo "TEST_OUTPUT_FILE_PREFIX=$TEST_OUTPUT_FILE_PREFIX" >> $GITHUB_ENV
+
       - name: Check out code
         uses: actions/checkout@v4
         with:
@@ -64,14 +67,8 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            const globber = await glob.create('${{ env.TEST_OUTPUT_FILE_PREFIX }}_metrics.json')
-            for await (const file of globber.globGenerator()) {
-                const metrics = JSON.parse(fs.readFileSync(file, 'utf8'))
-                await core.summary
-                    .addHeading(Perf Test Metrics)
-                    .addTable(metrics)
-                    .write()
-            }
+            const script = require('./tests/perf/tests_summary.js')
+            await script({core, glob})
 
       - name: Delete perf test app
         if: always()
