@@ -54,7 +54,7 @@ func getSessionsURL() string {
 
 func getHTTPClient() *http.Client {
 	return &http.Client{
-		Timeout: time.Second * 10,
+		Timeout: time.Second * 60,
 	}
 }
 
