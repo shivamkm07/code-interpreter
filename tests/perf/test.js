@@ -20,11 +20,23 @@ export const options = {
         checks: ['rate==1'],
     },
     scenarios: {
-        'base': {
-            executor: 'shared-iterations',
-            vus: 1,
-            iterations: 10,
-            maxDuration: '100s',
+        // base: {
+        //     executor: 'shared-iterations',
+        //     vus: 1,
+        //     iterations: 10,
+        //     maxDuration: '100s',
+        // },
+        qps1: {
+          executor: 'constant-arrival-rate',
+          duration: '10s',
+          rate: 1,
+          timeUnit: '1s',
+        },
+        qps5: {
+          executor: 'constant-arrival-rate',
+          duration: '10s',
+          rate: 5,
+          timeUnit: '1s',
         },
     },
 };
@@ -38,7 +50,7 @@ function execute() {
     const params = {
       headers: {
         'Content-Type': 'application/json',
-        'IDENTIFIER': `${exec.vu.idInTest}`,
+        // 'IDENTIFIER': `${exec.vu.idInTest}`,
       },
     };
   
@@ -109,7 +121,6 @@ function extractMetrics(data) {
     addCounterMetrics(metrics, 'Iterations ' ,data.metrics.iterations.values);
     addRateMetrics(metrics, 'Checks ', data.metrics.checks.values);
     addTrendMetrics(metrics, 'Req Duration ', data.metrics.http_req_duration.values);
-    addTrendMetrics(metrics, 'Req Waiting ', data.metrics.http_req_waiting.values);
     addTrendMetrics(metrics,"X-Ms-Allocation-Time ",data.metrics.X_Ms_Allocation_Time.values);
     addTrendMetrics(metrics,"X-Ms-Container-Execution-Duration ",data.metrics.X_Ms_Container_Execution_Duration.values);
     addTrendMetrics(metrics,"X-Ms-Execution-Read-Response-Time ",data.metrics.X_Ms_Execution_Read_Response_Time.values);
