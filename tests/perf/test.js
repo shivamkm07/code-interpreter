@@ -26,19 +26,40 @@ export const options = {
         //     iterations: 10,
         //     maxDuration: '100s',
         // },
-        qps1: {
-          executor: 'constant-arrival-rate',
-          duration: '10s',
-          rate: 1,
-          timeUnit: '1s',
-          preAllocatedVUs: 1,
-        },
+        // qps1: {
+        //   executor: 'constant-arrival-rate',
+        //   duration: '60s',
+        //   rate: 1,
+        //   timeUnit: '1s',
+        //   preAllocatedVUs: 1,
+        // },
         qps5: {
           executor: 'constant-arrival-rate',
-          duration: '10s',
+          duration: '60s',
           rate: 5,
           timeUnit: '1s',
           preAllocatedVUs: 5,
+        },
+        qps10: {
+          executor: 'constant-arrival-rate',
+          duration: '60s',
+          rate: 10,
+          timeUnit: '1s',
+          preAllocatedVUs: 10,
+        },
+        qps15: {
+          executor: 'constant-arrival-rate',
+          duration: '60s',
+          rate: 15,
+          timeUnit: '1s',
+          preAllocatedVUs: 15,
+        },
+        qps20: {
+          executor: 'constant-arrival-rate',
+          duration: '60s',
+          rate: 20,
+          timeUnit: '1s',
+          preAllocatedVUs: 20,
         },
     },
 };
@@ -57,7 +78,7 @@ function execute() {
     };
   
     const res = http.post(url, payload, params);
-    console.log("response received: ", res)
+    // console.log("response received: ", res)
     return res;
 }
 
