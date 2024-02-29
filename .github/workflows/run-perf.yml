@@ -50,6 +50,7 @@ jobs:
           make run-perf-test
 
       - name: Collect container logs
+        if: always()
         run: |
           make log-perfapp-container > ${{ env.TEST_OUTPUT_FILE_PREFIX }}_logs.txt
 
