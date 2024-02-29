@@ -34,6 +34,7 @@ function execute() {
     };
   
     const res = http.post(url, payload, params);
+    console.log("response received: ", res)
     return res;
 }
 
