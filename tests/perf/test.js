@@ -45,7 +45,7 @@ function execute() {
     const params = {
       headers: {
         'Content-Type': 'application/json',
-        // 'IDENTIFIER': `${exec.vu.idInTest}`,
+        'IDENTIFIER': `${exec.scenario.iterationInTest}`,
       },
     };
   
