@@ -70,21 +70,21 @@ function addMaxGaugeMetrics(metrics, prefix, values) {
 
 function extractMetrics(data) {
     let metrics = [];
-    addMaxGaugeMetrics(metrics, 'VUs ', data.metrics.vus);
-    addCounterMetrics(metrics, 'Iterations ' ,data.metrics.iterations);
-    addRateMetrics(metrics, 'Checks ', data.metrics.checks);
+    addMaxGaugeMetrics(metrics, 'VUs ', data.metrics.vus.values);
+    addCounterMetrics(metrics, 'Iterations ' ,data.metrics.iterations.values);
+    addRateMetrics(metrics, 'Checks ', data.metrics.checks.values);
     addTrendMetrics(metrics, 'Req Duration ', data.metrics.http_req_duration.values);
     addTrendMetrics(metrics, 'Req Waiting ', data.metrics.http_req_waiting.values);
     return metrics;
 }
 
 export function handleSummary(data) {
-    metrics = extractMetrics(data);
+    let metrics = extractMetrics(data);
     return {
       stdout: textSummary(data, {enableColors: true }),
-      'test_perf_summary.json': JSON.stringify(data),
-      'test_perf_summary.xml': jUnit(data),
-      'test_perf_metrics.json': JSON.stringify(metrics),
-      "test_perf_summary.html": htmlReport(data),
+      'test_perf_report_summary.json': JSON.stringify(data),
+      'test_perf_report_summary.xml': jUnit(data),
+      'test_perf_report_metrics.json': JSON.stringify(metrics),
+      "test_perf_report_summary.html": htmlReport(data),
     };
 }

@@ -10,6 +10,8 @@ jobs:
   validate:
     name: Validate
     runs-on: ubuntu-latest
+    env:
+      TEST_OUTPUT_FILE_PREFIX: test_perf_report
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -43,13 +45,26 @@ jobs:
       - name: Run perf test
         run: |
           make run-perf-test
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test_perf_results
+          path: ${{ env.TEST_OUTPUT_FILE_PREFIX }}_*.*
+
+      - name: Add job test summary
+        if: always()
+        uses: test-summary/action@v2
+        with:
+          paths: test_perf_report_summary.xml
       
       - name: Add job test outputs
         if: always()
         uses: actions/github-script@v6
         with:
           script: |
-            const globber = await glob.create('test_perf_metrics.json')
+            const globber = await glob.create('${{ env.TEST_OUTPUT_FILE_PREFIX }}_metrics.json')
             for await (const file of globber.globGenerator()) {
                 const metrics = JSON.parse(fs.readFileSync(file, 'utf8'))
                 await core.summary
