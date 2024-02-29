@@ -37,8 +37,15 @@ type SessionsExecuteProperties struct {
 }
 
 const (
-	sessionsPrivateURL = "https://capps-azapi-session-9baa9.capps-snazase-shivamkumar.p.azurewebsites.net/subscriptions/cb58023b-caf0-4b5e-9a01-4b9cc66960db/resourceGroups/capps-shivamkumar-rg/sessionPools/testpool2/python/execute"
-	sessionsProdURL    = "https://northcentralusstage.acasessions.io/subscriptions/aa1bd316-43b3-463e-b78f-0d598e3b8972/resourceGroups/sessions-perf-northcentralus/sessionPools/testpool/python/execute"
+	sessionsPrivateURL            = "https://capps-azapi-session-9baa9.capps-snazase-shivamkumar.p.azurewebsites.net/subscriptions/cb58023b-caf0-4b5e-9a01-4b9cc66960db/resourceGroups/capps-shivamkumar-rg/sessionPools/testpool2/python/execute"
+	sessionsProdURL               = "https://northcentralusstage.acasessions.io/subscriptions/aa1bd316-43b3-463e-b78f-0d598e3b8972/resourceGroups/sessions-perf-northcentralus/sessionPools/testpool/python/execute"
+	XMsAllocationTime             = "X-Ms-Allocation-Time"
+	XMsContainerExecutionDuration = "X-Ms-Container-Execution-Duration"
+	XMsExecutionReadResponseTime  = "X-Ms-Execution-Read-Response-Time"
+	XMsExecutionRequestTime       = "X-Ms-Execution-Request-Time"
+	XMsOverallExecutionTime       = "X-Ms-Overall-Execution-Time"
+	XMsPreparationTime            = "X-Ms-Preparation-Time"
+	XMsTotalExecutionServiceTime  = "X-Ms-Total-Execution-Service-Time"
 )
 
 func getSessionsURL() string {
@@ -80,6 +87,16 @@ func getAccessToken() (string, error) {
 func logAndReturnError(w http.ResponseWriter, message string, statusCode int) {
 	logger.Error(message)
 	http.Error(w, message, statusCode)
+}
+
+func copyXMsHeaderValues(respHeader http.Header, w http.ResponseWriter) {
+	keys := []string{XMsAllocationTime, XMsContainerExecutionDuration, XMsExecutionReadResponseTime, XMsExecutionRequestTime, XMsOverallExecutionTime, XMsPreparationTime, XMsTotalExecutionServiceTime}
+	for _, key := range keys {
+		val := respHeader.Get(key)
+		if val != "" {
+			w.Header().Set(key, val)
+		}
+	}
 }
 
 func executeHandler(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +168,7 @@ func executeHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		logger.Errorf("Error: Code execution failed in %d ms. Response received: %s", delay.Milliseconds(), string(respBody))
 	}
+	copyXMsHeaderValues(resp.Header, w)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	w.Write(respBody)

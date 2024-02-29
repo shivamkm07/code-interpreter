@@ -4,6 +4,15 @@ import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.2/index.js';
 import { jUnit } from 'https://jslib.k6.io/k6-summary/0.0.2/index.js';
 import { check } from 'k6';
 import { htmlReport } from "https://raw.githubusercontent.com/benc-uk/k6-reporter/main/dist/bundle.js";
+import { Trend } from "k6/metrics";
+
+const XMsAllocationTime = new Trend('X_Ms_Allocation_Time');
+const XMsContainerExecutionDuration = new Trend('X_Ms_Container_Execution_Duration');
+const XMsExecutionReadResponseTime = new Trend('X_Ms_Execution_Read_Response_Time');
+const XMsExecutionRequestTime = new Trend('X_Ms_Execution_Request_Time');
+const XMsOverallExecutionTime = new Trend('X_Ms_Overall_Execution_Time');
+const XMsPreparationTime = new Trend('X_Ms_Preparation_Time');
+const XMsTotalExecutionServiceTime = new Trend('X_Ms_Total_Execution_Service_Time');
 
 export const options = {
     discardResponseBodies: true,
@@ -15,7 +24,7 @@ export const options = {
             executor: 'shared-iterations',
             vus: 1,
             iterations: 10,
-            maxDuration: '10s',
+            maxDuration: '100s',
         },
     },
 };
@@ -38,12 +47,37 @@ function execute() {
     return res;
 }
 
+function recordXMsMetrics(headers){
+    if('X-Ms-Allocation-Time' in headers){
+      XMsAllocationTime.add(headers['X-Ms-Allocation-Time']);
+    }
+    if('X-Ms-Container-Execution-Duration' in headers){
+      XMsContainerExecutionDuration.add(headers['X-Ms-Container-Execution-Duration']);
+    }
+    if('X-Ms-Execution-Read-Response-Time' in headers){
+      XMsExecutionReadResponseTime.add(headers['X-Ms-Execution-Read-Response-Time']);
+    }
+    if('X-Ms-Execution-Request-Time' in headers){
+      XMsExecutionRequestTime.add(headers['X-Ms-Execution-Request-Time']);
+    }
+    if('X-Ms-Overall-Execution-Time' in headers){
+      XMsOverallExecutionTime.add(headers['X-Ms-Overall-Execution-Time']);
+    }
+    if('X-Ms-Preparation-Time' in headers){
+      XMsPreparationTime.add(headers['X-Ms-Preparation-Time']);
+    }
+    if('X-Ms-Total-Execution-Service-Time' in headers){
+      XMsTotalExecutionServiceTime.add(headers['X-Ms-Total-Execution-Service-Time']);
+    }
+}
+
 export default function () {
     let result = execute();
     check(result, {
         'response code was 2xx': (result) =>
             result.status >= 200 && result.status < 300,
     })
+    recordXMsMetrics(result.headers)
 }
 
 function addTrendMetrics(metrics, prefix, values) {
@@ -76,6 +110,14 @@ function extractMetrics(data) {
     addRateMetrics(metrics, 'Checks ', data.metrics.checks.values);
     addTrendMetrics(metrics, 'Req Duration ', data.metrics.http_req_duration.values);
     addTrendMetrics(metrics, 'Req Waiting ', data.metrics.http_req_waiting.values);
+    addTrendMetrics(metrics,"X-Ms-Allocation-Time ",data.metrics.X_Ms_Allocation_Time.values);
+    addTrendMetrics(metrics,"X-Ms-Container-Execution-Duration ",data.metrics.X_Ms_Container_Execution_Duration.values);
+    addTrendMetrics(metrics,"X-Ms-Execution-Read-Response-Time ",data.metrics.X_Ms_Execution_Read_Response_Time.values);
+    addTrendMetrics(metrics,"X-Ms-Execution-Request-Time ",data.metrics.X_Ms_Execution_Request_Time.values);
+    addTrendMetrics(metrics,"X-Ms-Overall-Execution-Time ",data.metrics.X_Ms_Overall_Execution_Time.values);
+    addTrendMetrics(metrics,"X-Ms-Preparation-Time ",data.metrics.X_Ms_Preparation_Time.values);
+    addTrendMetrics(metrics,"X-Ms-Total-Execution-Service-Time ",data.metrics.X_Ms_Total_Execution_Service_Time.values);
+
     return metrics;
 }
 
