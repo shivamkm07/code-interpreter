@@ -38,7 +38,7 @@ type SessionsExecuteProperties struct {
 
 const (
 	sessionsPrivateURL = "https://capps-azapi-session-9baa9.capps-snazase-shivamkumar.p.azurewebsites.net/subscriptions/cb58023b-caf0-4b5e-9a01-4b9cc66960db/resourceGroups/capps-shivamkumar-rg/sessionPools/testpool2/python/execute"
-	sessionsProdURL    = "https://northcentralusstage.acasessions.io/subscriptions/88b30252-64f2-481d-888f-3bd5de377231/resourceGroups/sessions-perf-test/sessionPools/testpool/python/execute"
+	sessionsProdURL    = "https://northcentralusstage.acasessions.io/subscriptions/aa1bd316-43b3-463e-b78f-0d598e3b8972/resourceGroups/sessions-perf-northcentralus/sessionPools/testpool/python/execute"
 )
 
 func getSessionsURL() string {
