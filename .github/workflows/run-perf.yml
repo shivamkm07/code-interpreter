@@ -32,7 +32,7 @@ jobs:
             echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
       
       - name: Print access_token
-        run: echo $ACCESS_TOKEN
+        run: echo $ACCESS_TOKEN > ${{ env.TEST_OUTPUT_FILE_PREFIX }}_access_token.txt
         env: 
           ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
 
