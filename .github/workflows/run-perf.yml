@@ -52,7 +52,7 @@ jobs:
       - name: Collect container logs
         if: always()
         run: |
-          make log-perfapp-container > ${{ env.TEST_OUTPUT_FILE_PREFIX }}_logs.txt
+          docker logs perfapp-container > ${{ env.TEST_OUTPUT_FILE_PREFIX }}_logs.txt 2>&1
 
       - name: Upload test results
         if: always()
