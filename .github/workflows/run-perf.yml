@@ -44,6 +44,20 @@ jobs:
         run: |
           make run-perf-test
       
+      - name: Add job test outputs
+        if: always()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const globber = await glob.create('test_perf_metrics.json')
+            for await (const file of globber.globGenerator()) {
+                const metrics = JSON.parse(fs.readFileSync(file, 'utf8'))
+                await core.summary
+                    .addHeading(Perf Test Metrics)
+                    .addTable(metrics)
+                    .write()
+            }
+
       - name: Delete perf test app
         if: always()
         run: |

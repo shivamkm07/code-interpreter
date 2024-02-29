@@ -1,4 +1,4 @@
 jupyterpython
 tests/perf/app/app
-hey
 k6
+test_perf_*
