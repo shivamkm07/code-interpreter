@@ -31,12 +31,14 @@ export const options = {
           duration: '10s',
           rate: 1,
           timeUnit: '1s',
+          preAllocatedVUs: 1,
         },
         qps5: {
           executor: 'constant-arrival-rate',
           duration: '10s',
           rate: 5,
           timeUnit: '1s',
+          preAllocatedVUs: 5,
         },
     },
 };
