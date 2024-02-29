@@ -80,6 +80,9 @@ function recordXMsMetrics(headers){
 
 export default function () {
     let result = execute();
+    if(result.status < 200 || result.status >= 300){
+      console.log(result);
+    }
     check(result, {
         'response code was 2xx': (result) =>
             result.status >= 200 && result.status < 300,
