@@ -83,8 +83,6 @@ func logAndReturnError(w http.ResponseWriter, message string, statusCode int) {
 }
 
 func executeHandler(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Hello, World!"))
-	return
 	reqBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		logAndReturnError(w, fmt.Sprintf("Error reading request body: %s", err.Error()), http.StatusInternalServerError)
