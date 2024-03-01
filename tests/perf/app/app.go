@@ -64,6 +64,7 @@ func isSuccessStatusCode(statusCode int) bool {
 }
 func getSessionsToken() (string, error) {
 	// Create a new DefaultAzureCredential instance
+	logger.Info("Fetching Sessions token")
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create DefaultAzureCredential: %w", err)
