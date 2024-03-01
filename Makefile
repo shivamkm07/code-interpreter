@@ -35,7 +35,7 @@ build-perfapp-image:
 	docker build -t perfapp:latest tests/perf/app/
 
 run-perfapp-container: build-perfapp-image
-	docker run --name perfapp-container -d --rm -p 8080:8080 -e ACCESS_TOKEN=$(ACCESS_TOKEN) perfapp:latest
+	docker run --name perfapp-container -d --rm -p 8080:8080 -e AZURE_TENANT_ID=$(AZURE_TENANT_ID) -e AZURE_CLIENT_ID=$(AZURE_CLIENT_ID) -e AZURE_CLIENT_SECRET=$(AZURE_CLIENT_SECRET) perfapp:latest
 
 delete-perfapp-container:
 	docker rm -f perfapp-container

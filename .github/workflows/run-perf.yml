@@ -20,30 +20,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      
-      - name: Login to Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-      
-      - name: Set ACCESS_TOKEN
-        uses: azure/CLI@v1
-        with:
-          azcliversion: latest
-          inlineScript: |
-            export ACCESS_TOKEN=$(az account get-access-token --resource https://acasessions.io | jq -r .accessToken)
-            echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
-      
-      - name: Print access_token
-        run: echo $ACCESS_TOKEN > ${{ env.TEST_OUTPUT_FILE_PREFIX }}_access_token.txt
-        env: 
-          ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
 
       - name: Build and Run perf test app
         run: |
           make run-perfapp-container
         env:
-          ACCESS_TOKEN: ${{ env.ACCESS_TOKEN }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET}}
       
       - name: Run perf test
         run: |

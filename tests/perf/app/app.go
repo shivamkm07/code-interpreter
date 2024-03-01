@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -62,11 +61,6 @@ func isSuccessStatusCode(statusCode int) bool {
 	return statusCode >= 200 && statusCode < 300
 }
 func getAccessToken() (string, error) {
-	// Check if the ACCESS_TOKEN environment variable is set, if yes return it as the access token
-	accessToken := os.Getenv("ACCESS_TOKEN")
-	if accessToken != "" {
-		return accessToken, nil
-	}
 	// Create a new DefaultAzureCredential instance
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
