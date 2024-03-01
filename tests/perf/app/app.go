@@ -47,6 +47,8 @@ const (
 	XMsTotalExecutionServiceTime  = "X-Ms-Total-Execution-Service-Time"
 )
 
+var sessionsToken = ""
+
 func getSessionsURL() string {
 	return sessionsProdURL
 }
@@ -60,7 +62,7 @@ func getHTTPClient() *http.Client {
 func isSuccessStatusCode(statusCode int) bool {
 	return statusCode >= 200 && statusCode < 300
 }
-func getAccessToken() (string, error) {
+func getSessionsToken() (string, error) {
 	// Create a new DefaultAzureCredential instance
 	cred, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
@@ -110,11 +112,14 @@ func executeHandler(w http.ResponseWriter, r *http.Request) {
 		sessionID = uuid.New().String()
 	}
 
-	accessToken, err := getAccessToken()
-	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error getting access token: %s", err.Error()), http.StatusInternalServerError)
-		return
+	if sessionsToken == "" {
+		sessionsToken, err = getSessionsToken()
+		if err != nil {
+			logAndReturnError(w, fmt.Sprintf("Error getting sessions token: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
 	}
+
 	sessionsURL := getSessionsURL()
 	client := getHTTPClient()
 	sessionsExecuteBody := &SessionsExecuteBody{
@@ -139,7 +144,7 @@ func executeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Header = http.Header{
-		"Authorization": []string{fmt.Sprintf("Bearer %s", accessToken)},
+		"Authorization": []string{fmt.Sprintf("Bearer %s", sessionsToken)},
 		"Content-Type":  []string{"application/json"},
 	}
 	start := time.Now()
