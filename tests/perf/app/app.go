@@ -13,6 +13,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
@@ -38,6 +39,8 @@ type SessionsExecuteProperties struct {
 const (
 	sessionsPrivateURL            = "https://capps-azapi-session-9baa9.capps-snazase-shivamkumar.p.azurewebsites.net/subscriptions/cb58023b-caf0-4b5e-9a01-4b9cc66960db/resourceGroups/capps-shivamkumar-rg/sessionPools/testpool2/python/execute"
 	sessionsProdURL               = "https://northcentralusstage.acasessions.io/subscriptions/aa1bd316-43b3-463e-b78f-0d598e3b8972/resourceGroups/sessions-perf-northcentralus/sessionPools/testpool/python/execute"
+	eventHubsNamespace            = "my-capps-test.servicebus.windows.net"
+	eventHubName                  = "sessions-loadtest-results"
 	XMsAllocationTime             = "X-Ms-Allocation-Time"
 	XMsContainerExecutionDuration = "X-Ms-Container-Execution-Duration"
 	XMsExecutionReadResponseTime  = "X-Ms-Execution-Read-Response-Time"
@@ -174,9 +177,54 @@ func executeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(respBody)
 }
 
+func publishEventHubsHandler(w http.ResponseWriter, r *http.Request) {
+	reqBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error reading publish request body: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	defaultAzureCred, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error creating DefaultAzureCredential: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	producerClient, err := azeventhubs.NewProducerClient(eventHubsNamespace, eventHubName, defaultAzureCred, nil)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error creating ProducerClient: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	batch, err := producerClient.NewEventDataBatch(context.TODO(), &azeventhubs.EventDataBatchOptions{})
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error creating EventDataBatch: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+	event := &azeventhubs.EventData{
+		Body: reqBody,
+	}
+	err = batch.AddEventData(event, nil)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error adding event to EventDataBatch: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+	err = producerClient.SendEventDataBatch(context.TODO(), batch, nil)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error sending EventDataBatch: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+
+	logger.Info("Received request to publish to Event Hubs: ", string(reqBody))
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Published to Event Hubs"))
+
+}
+
 func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/execute", executeHandler)
+	r.HandleFunc("/publish-eventhubs", publishEventHubsHandler)
 
 	logger.Info("Starting server on port 8080")
 	http.ListenAndServe(":8080", r)

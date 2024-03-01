@@ -138,8 +138,31 @@ function extractMetrics(data) {
     return metrics;
 }
 
+function publishMetricsToEventHubs(metrics){
+    let metricsObj = metrics.reduce((obj, item) => {
+      obj[item[0]] = item[1];
+      return obj;
+    }, {});
+    console.log(metricsObj);
+
+    const url = 'http://localhost:8080/publish-eventhubs';
+    const payload = JSON.stringify(metricsObj);
+    const params = {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    };
+
+    const res = http.post(url, payload, params);
+    if(res.status < 200 || res.status >= 300){
+      console.log(res);
+    }
+    return res;
+}
+
 export function handleSummary(data) {
     let metrics = extractMetrics(data);
+    publishMetricsToEventHubs(metrics);
     return {
       stdout: textSummary(data, {enableColors: true }),
       'test_perf_report_summary.json': JSON.stringify(data),
