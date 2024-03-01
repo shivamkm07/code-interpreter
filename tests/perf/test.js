@@ -21,25 +21,25 @@ export const options = {
         checks: ['rate==1'],
     },
     scenarios: {
-        test: {
-          executor: 'shared-iterations',
-          vus: 1,
-          iterations: 10,
-          maxDuration: '30s',
-        },
-        // ramping: {
-        //   executor: 'ramping-arrival-rate',
-        //   startRate: 5,
-        //   timeUnit: '1s',
-        //   preAllocatedVUs: 20,
-        //   stages: [
-        //     { target: 5, duration: '1m' },
-        //     { target: 10, duration: '1m' },
-        //     { target: 10, duration: '1m' },
-        //     { target: 15, duration: '1m' },
-        //     { target: 15, duration: '1m' },
-        //   ],
+        // test: {
+        //   executor: 'shared-iterations',
+        //   vus: 1,
+        //   iterations: 10,
+        //   maxDuration: '30s',
         // },
+        ramping: {
+          executor: 'ramping-arrival-rate',
+          startRate: 5,
+          timeUnit: '1s',
+          preAllocatedVUs: 20,
+          stages: [
+            { target: 5, duration: '1m' },
+            { target: 10, duration: '1m' },
+            { target: 10, duration: '1m' },
+            { target: 15, duration: '1m' },
+            { target: 15, duration: '1m' },
+          ],
+        },
     },
 };
 
@@ -86,7 +86,6 @@ function recordXMsMetrics(headers){
 
 export default function () {
     let result = execute();
-    sleep(1);
     if(result.status < 200 || result.status >= 300){
       console.log("ERROR: Request failed with status: " + result.status + ". Response: " + result.body);
     }
