@@ -215,9 +215,9 @@ func publishEventHubsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.Info("Received request to publish to Event Hubs: ", string(reqBody))
+	logger.Info("Metrics published to Event Hubs Successfully")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Published to Event Hubs"))
+	w.Write([]byte("OK"))
 
 }
 

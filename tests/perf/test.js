@@ -2,7 +2,7 @@ import http from 'k6/http';
 import exec from 'k6/execution';
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.2/index.js';
 import { jUnit } from 'https://jslib.k6.io/k6-summary/0.0.2/index.js';
-import { check } from 'k6';
+import { check, sleep } from 'k6';
 import { htmlReport } from "https://raw.githubusercontent.com/benc-uk/k6-reporter/main/dist/bundle.js";
 import { Trend } from "k6/metrics";
 
@@ -13,9 +13,10 @@ const XMsExecutionRequestTime = new Trend('X_Ms_Execution_Request_Time');
 const XMsOverallExecutionTime = new Trend('X_Ms_Overall_Execution_Time');
 const XMsPreparationTime = new Trend('X_Ms_Preparation_Time');
 const XMsTotalExecutionServiceTime = new Trend('X_Ms_Total_Execution_Service_Time');
+const ncusStageRegion = "North Central US(Stage)"
 
 export const options = {
-    discardResponseBodies: true,
+    // discardResponseBodies: true,
     thresholds: {
         checks: ['rate==1'],
     },
@@ -85,8 +86,9 @@ function recordXMsMetrics(headers){
 
 export default function () {
     let result = execute();
+    sleep(1);
     if(result.status < 200 || result.status >= 300){
-      console.log(result);
+      console.log("ERROR: Request failed with status: " + result.status + ". Response: " + result.body);
     }
     check(result, {
         'response code was 2xx': (result) =>
@@ -107,33 +109,40 @@ function addTrendMetrics(metrics, prefix, values) {
   metrics.push([prefix + 'P99.9', values['p(99.9)'].toFixed(2) + ' ms']);
 }
 
-function addCounterMetrics(metrics, prefix, values) {
-  metrics.push([prefix + 'COUNT', values.count.toString()]);
-  metrics.push([prefix + 'RATE', values.rate.toFixed(2)]);
+function getTestRegion(){
+  if(__ENV.TEST_REGION){
+    return `${__ENV.TEST_REGION}`
+  }
+    return ncusStageRegion;
 }
 
-function addRateMetrics(metrics, prefix, values) {
-  metrics.push([prefix + 'PASSED', values.passes.toString()]);
-  metrics.push([prefix + 'FAILED', values.fails.toString()]);
-}
-
-function addMaxGaugeMetrics(metrics, prefix, values) {
-  metrics.push([prefix + 'MAX', values.max.toString()]);
+function getTestStartTime(){
+  if(__ENV.TEST_START_TIME){
+    return new Date(`${__ENV.TEST_START_TIME}`);
+  }
+  console.log("INFO: Test start time not provided, using current time as start time");
+  return new Date();
 }
 
 function extractMetrics(data) {
     let metrics = [];
-    addMaxGaugeMetrics(metrics, 'VUs ', data.metrics.vus.values);
-    addCounterMetrics(metrics, 'Iterations ' ,data.metrics.iterations.values);
-    addRateMetrics(metrics, 'Checks ', data.metrics.checks.values);
-    addTrendMetrics(metrics, 'Req Duration ', data.metrics.http_req_duration.values);
-    addTrendMetrics(metrics,"X-Ms-Allocation-Time ",data.metrics.X_Ms_Allocation_Time.values);
-    addTrendMetrics(metrics,"X-Ms-Container-Execution-Duration ",data.metrics.X_Ms_Container_Execution_Duration.values);
-    addTrendMetrics(metrics,"X-Ms-Execution-Read-Response-Time ",data.metrics.X_Ms_Execution_Read_Response_Time.values);
-    addTrendMetrics(metrics,"X-Ms-Execution-Request-Time ",data.metrics.X_Ms_Execution_Request_Time.values);
-    addTrendMetrics(metrics,"X-Ms-Overall-Execution-Time ",data.metrics.X_Ms_Overall_Execution_Time.values);
-    addTrendMetrics(metrics,"X-Ms-Preparation-Time ",data.metrics.X_Ms_Preparation_Time.values);
-    addTrendMetrics(metrics,"X-Ms-Total-Execution-Service-Time ",data.metrics.X_Ms_Total_Execution_Service_Time.values);
+    let testStartTime = getTestStartTime();
+    let testEndTime = new Date();
+    metrics.push(["StartTime", testStartTime.toISOString()]);
+    metrics.push(["EndTime", testEndTime.toISOString()]);
+    metrics.push(["TestDuration", String((testEndTime - testStartTime)/60000) + " min"]);
+    metrics.push(["Region", getTestRegion()]);
+    metrics.push(["RequestsTotal", String(data.metrics.iterations.values.count)]);
+    metrics.push(["RequestsPassed", String(data.metrics.checks.values.passes)]);
+    metrics.push(["RequestsFailed", String(data.metrics.checks.values.fails)]);
+    addTrendMetrics(metrics, "ReqDuration ", data.metrics.http_req_duration.values);
+    addTrendMetrics(metrics,"XMsAllocationTime ",data.metrics.X_Ms_Allocation_Time.values);
+    addTrendMetrics(metrics,"XMsContainerExecutionDuration ",data.metrics.X_Ms_Container_Execution_Duration.values);
+    addTrendMetrics(metrics,"XMsExecutionReadResponseTime ",data.metrics.X_Ms_Execution_Read_Response_Time.values);
+    addTrendMetrics(metrics,"XMsExecutionRequestTime ",data.metrics.X_Ms_Execution_Request_Time.values);
+    addTrendMetrics(metrics,"XMsOverallExecutionTime ",data.metrics.X_Ms_Overall_Execution_Time.values);
+    addTrendMetrics(metrics,"XMsPreparationTime ",data.metrics.X_Ms_Preparation_Time.values);
+    addTrendMetrics(metrics,"XMsTotalExecutionServiceTime ",data.metrics.X_Ms_Total_Execution_Service_Time.values);
 
     return metrics;
 }
@@ -143,7 +152,6 @@ function publishMetricsToEventHubs(metrics){
       obj[item[0]] = item[1];
       return obj;
     }, {});
-    console.log(metricsObj);
 
     const url = 'http://localhost:8080/publish-eventhubs';
     const payload = JSON.stringify(metricsObj);
@@ -155,7 +163,9 @@ function publishMetricsToEventHubs(metrics){
 
     const res = http.post(url, payload, params);
     if(res.status < 200 || res.status >= 300){
-      console.log(res);
+      console.log("ERROR: PublishMetricsToEventHubs Request failed with status: " + res.status + ". Response: " + res.body);
+    } else{
+      console.log("Metrics published to EventHubs successfully");
     }
     return res;
 }
