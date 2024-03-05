@@ -52,7 +52,7 @@ function execute() {
     const params = {
       headers: {
         'Content-Type': 'application/json',
-        'IDENTIFIER': `${exec.scenario.iterationInTest}`,
+        'IDENTIFIER': getRunID() + `_${exec.scenario.iterationInTest}`,
       },
     };
   
