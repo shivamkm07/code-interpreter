@@ -181,6 +181,9 @@ function publishMetricsToEventHubs(metrics){
 export function handleSummary(data) {
     let metrics = extractMetrics(data);
     publishMetricsToEventHubs(metrics);
+
+    // Converting values to string as k6 summary does not support numbers
+    metrics = metrics.map(item => [item[0], String(item[1])]);
     return {
       stdout: textSummary(data, {enableColors: true }),
       'test_perf_report_summary.json': JSON.stringify(data),
