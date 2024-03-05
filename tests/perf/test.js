@@ -123,13 +123,22 @@ function getTestStartTime(){
   return new Date();
 }
 
+function getRunID(){
+  if(__ENV.RUN_ID){
+    return `${__ENV.RUN_ID}`
+  }
+  return "Test";
+}
+
 function extractMetrics(data) {
     let metrics = [];
     let testStartTime = getTestStartTime();
     let testEndTime = new Date();
-    metrics.push(["StartTime", testStartTime.toISOString()]);
-    metrics.push(["EndTime", testEndTime.toISOString()]);
-    metrics.push(["TestDuration", String((testEndTime - testStartTime)/60000) + " min"]);
+    let runID = getRunID();
+    metrics.push(["RunID", runID]);
+    metrics.push(["StartTime", testStartTime]);
+    metrics.push(["EndTime", testEndTime]);
+    metrics.push(["TestDuration", ((testEndTime - testStartTime)/60000).toFixed(2) + " min"]);
     metrics.push(["Region", getTestRegion()]);
     metrics.push(["RequestsTotal", String(data.metrics.iterations.values.count)]);
     metrics.push(["RequestsPassed", String(data.metrics.checks.values.passes)]);

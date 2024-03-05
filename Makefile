@@ -51,4 +51,4 @@ install-perf-deps:
 
 run-perf-test: install-perf-deps
 	# ./hey -n 5 -c 5 -m POST -T 'application/json' -d '{"code":"1+2"}' http://localhost:8080/execute
-	./k6 run -e TEST_START_TIME="$(shell date -Iseconds)" tests/perf/test.js --summary-trend-stats="min,max,med,avg,p(90),p(95),p(98),p(99),p(99.9)"
+	./k6 run -e TEST_START_TIME="$(shell date -Iseconds)" -e RUN_ID=$(GITHUB_RUN_ID) tests/perf/test.js --summary-trend-stats="min,max,med,avg,p(90),p(95),p(98),p(99),p(99.9)"
