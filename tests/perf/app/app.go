@@ -40,7 +40,7 @@ const (
 	sessionsPrivateURL            = "https://capps-azapi-session-9baa9.capps-snazase-shivamkumar.p.azurewebsites.net/subscriptions/cb58023b-caf0-4b5e-9a01-4b9cc66960db/resourceGroups/capps-shivamkumar-rg/sessionPools/testpool2/python/execute"
 	sessionsProdURL               = "https://northcentralusstage.acasessions.io/subscriptions/aa1bd316-43b3-463e-b78f-0d598e3b8972/resourceGroups/sessions-perf-northcentralus/sessionPools/testpool/python/execute"
 	eventHubsNamespace            = "my-capps-test.servicebus.windows.net"
-	eventHubName                  = "sessions-loadtest-results"
+	eventHubName                  = "sessions-loadtest-results2"
 	XMsAllocationTime             = "X-Ms-Allocation-Time"
 	XMsContainerExecutionDuration = "X-Ms-Container-Execution-Duration"
 	XMsExecutionReadResponseTime  = "X-Ms-Execution-Read-Response-Time"
