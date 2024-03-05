@@ -97,15 +97,15 @@ export default function () {
 }
 
 function addTrendMetrics(metrics, prefix, values) {
-  metrics.push([prefix + 'MIN', values.min.toFixed(2) + ' ms']);
-  metrics.push([prefix + 'MAX', values.max.toFixed(2) + ' ms']);
-  metrics.push([prefix + 'MED', values.med.toFixed(2) + ' ms']);
-  metrics.push([prefix + 'AVG', values.avg.toFixed(2) + ' ms']);
-  metrics.push([prefix + 'P90', values['p(90)'].toFixed(2) + ' ms']);
-  metrics.push([prefix + 'P95', values['p(95)'].toFixed(2) + ' ms']);
-  metrics.push([prefix + 'P98', values['p(98)'].toFixed(2) + ' ms']);
-  metrics.push([prefix + 'P99', values['p(99)'].toFixed(2) + ' ms']);
-  metrics.push([prefix + 'P99.9', values['p(99.9)'].toFixed(2) + ' ms']);
+  metrics.push([prefix + 'MIN', values.min]);
+  metrics.push([prefix + 'MAX', values.max]);
+  metrics.push([prefix + 'MED', values.med]);
+  metrics.push([prefix + 'AVG', values.avg]);
+  metrics.push([prefix + 'P90', values['p(90)']]);
+  metrics.push([prefix + 'P95', values['p(95)']]);
+  metrics.push([prefix + 'P98', values['p(98)']]);
+  metrics.push([prefix + 'P99', values['p(99)']]);
+  metrics.push([prefix + 'P99.9', values['p(99.9)']]);
 }
 
 function getTestRegion(){
@@ -138,19 +138,19 @@ function extractMetrics(data) {
     metrics.push(["RunID", runID]);
     metrics.push(["StartTime", testStartTime]);
     metrics.push(["EndTime", testEndTime]);
-    metrics.push(["TestDuration", ((testEndTime - testStartTime)/60000).toFixed(2) + " min"]);
+    metrics.push(["TestDuration_Min", ((testEndTime - testStartTime)/60000)]);
     metrics.push(["Region", getTestRegion()]);
-    metrics.push(["RequestsTotal", String(data.metrics.iterations.values.count)]);
-    metrics.push(["RequestsPassed", String(data.metrics.checks.values.passes)]);
-    metrics.push(["RequestsFailed", String(data.metrics.checks.values.fails)]);
-    addTrendMetrics(metrics, "ReqDuration ", data.metrics.http_req_duration.values);
-    addTrendMetrics(metrics,"XMsAllocationTime ",data.metrics.X_Ms_Allocation_Time.values);
-    addTrendMetrics(metrics,"XMsContainerExecutionDuration ",data.metrics.X_Ms_Container_Execution_Duration.values);
-    addTrendMetrics(metrics,"XMsExecutionReadResponseTime ",data.metrics.X_Ms_Execution_Read_Response_Time.values);
-    addTrendMetrics(metrics,"XMsExecutionRequestTime ",data.metrics.X_Ms_Execution_Request_Time.values);
-    addTrendMetrics(metrics,"XMsOverallExecutionTime ",data.metrics.X_Ms_Overall_Execution_Time.values);
-    addTrendMetrics(metrics,"XMsPreparationTime ",data.metrics.X_Ms_Preparation_Time.values);
-    addTrendMetrics(metrics,"XMsTotalExecutionServiceTime ",data.metrics.X_Ms_Total_Execution_Service_Time.values);
+    metrics.push(["RequestsTotal", data.metrics.iterations.values.count]);
+    metrics.push(["RequestsPassed", data.metrics.checks.values.passes]);
+    metrics.push(["RequestsFailed", data.metrics.checks.values.fails]);
+    addTrendMetrics(metrics, "ReqDuration_Ms ", data.metrics.http_req_duration.values);
+    addTrendMetrics(metrics,"XMsAllocationTime_Ms ",data.metrics.X_Ms_Allocation_Time.values);
+    addTrendMetrics(metrics,"XMsContainerExecutionDuration_Ms ",data.metrics.X_Ms_Container_Execution_Duration.values);
+    addTrendMetrics(metrics,"XMsExecutionReadResponseTime_Ms ",data.metrics.X_Ms_Execution_Read_Response_Time.values);
+    addTrendMetrics(metrics,"XMsExecutionRequestTime_Ms ",data.metrics.X_Ms_Execution_Request_Time.values);
+    addTrendMetrics(metrics,"XMsOverallExecutionTime_Ms ",data.metrics.X_Ms_Overall_Execution_Time.values);
+    addTrendMetrics(metrics,"XMsPreparationTime_Ms ",data.metrics.X_Ms_Preparation_Time.values);
+    addTrendMetrics(metrics,"XMsTotalExecutionServiceTime_Ms ",data.metrics.X_Ms_Total_Execution_Service_Time.values);
 
     return metrics;
 }
