@@ -99,6 +99,11 @@ func copyXMsHeaderValues(respHeader http.Header, w http.ResponseWriter) {
 	}
 }
 
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
 func executeHandler(w http.ResponseWriter, r *http.Request) {
 	reqBody, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -223,6 +228,7 @@ func publishEventHubsHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	r := mux.NewRouter()
+	r.HandleFunc("/", rootHandler)
 	r.HandleFunc("/execute", executeHandler)
 	r.HandleFunc("/publish-eventhubs", publishEventHubsHandler)
 

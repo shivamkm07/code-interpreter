@@ -1,6 +1,15 @@
 name: perf-test
 on:
-  workflow_dispatch: { }
+  workflow_dispatch:
+    inputs:
+      qps:
+        description: 'QPS'
+        required: true
+        default: 1
+      duration:
+        description: 'Duration'
+        required: true
+        default: '10s'
   push:
     branches:
       - main
@@ -15,6 +24,19 @@ jobs:
         run: |
           export TEST_OUTPUT_FILE_PREFIX=$GITHUB_WORKSPACE/test_perf_report
           echo "TEST_OUTPUT_FILE_PREFIX=$TEST_OUTPUT_FILE_PREFIX" >> $GITHUB_ENV
+
+      - name: Set environment variables
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "QPS=${{ github.event.inputs.qps }}" >> $GITHUB_ENV
+            echo "DURATION=${{ github.event.inputs.duration }}" >> $GITHUB_ENV
+            echo "SCENARIO_TYPE=constant" >> $GITHUB_ENV
+          else
+            echo "SCENARIO_TYPE=ramping" >> $GITHUB_ENV
+          fi
+        env:
+          QPS_DEFAULT: 1
+          DURATION_DEFAULT: '10s'
 
       - name: Check out code
         uses: actions/checkout@v4

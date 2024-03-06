@@ -15,31 +15,57 @@ const XMsPreparationTime = new Trend('X_Ms_Preparation_Time');
 const XMsTotalExecutionServiceTime = new Trend('X_Ms_Total_Execution_Service_Time');
 const ncusStageRegion = "North Central US(Stage)"
 
+function getQPS(){
+  if(__ENV.QPS){
+    return parseInt(`${__ENV.QPS}`)
+  }
+  return 1;
+}
+
+function getDuration(){
+  if(__ENV.DURATION){
+    return `${__ENV.DURATION}`
+  }
+  return '10s';
+}
+
+function getScenarioType(){
+  if(__ENV.SCENARIO_TYPE){
+    return `${__ENV.SCENARIO_TYPE}`
+  }
+  return "constant";
+}
+
+let scenarios = {
+  ramping: {
+    executor: 'ramping-arrival-rate',
+    startRate: 5,
+    timeUnit: '1s',
+    preAllocatedVUs: 20,
+    stages: [
+      { target: 5, duration: '1m' },
+      { target: 10, duration: '1m' },
+      { target: 10, duration: '1m' },
+      { target: 15, duration: '1m' },
+      { target: 15, duration: '1m' },
+    ],
+  },
+  constant:{
+    executor: 'constant-arrival-rate',
+    rate: getQPS(),
+    timeUnit: '1s',
+    duration: getDuration(),
+    preAllocatedVUs: 3*getQPS(),
+  }
+}
+
 export const options = {
     // discardResponseBodies: true,
     thresholds: {
         checks: ['rate==1'],
     },
     scenarios: {
-        test: {
-          executor: 'shared-iterations',
-          vus: 1,
-          iterations: 10,
-          maxDuration: '30s',
-        },
-        // ramping: {
-        //   executor: 'ramping-arrival-rate',
-        //   startRate: 5,
-        //   timeUnit: '1s',
-        //   preAllocatedVUs: 20,
-        //   stages: [
-        //     { target: 5, duration: '1m' },
-        //     { target: 10, duration: '1m' },
-        //     { target: 10, duration: '1m' },
-        //     { target: 15, duration: '1m' },
-        //     { target: 15, duration: '1m' },
-        //   ],
-        // },
+      scenario: scenarios[getScenarioType()],
     },
 };
 
@@ -96,7 +122,11 @@ export default function () {
     recordXMsMetrics(result.headers)
 }
 
-function addTrendMetrics(metrics, prefix, values) {
+function addTrendMetrics(metrics, prefix, metric) {
+  if(!(metric && metric.values)){
+    return;
+  }
+  let values = metric.values;
   metrics.push([prefix + 'MIN', values.min]);
   metrics.push([prefix + 'MAX', values.max]);
   metrics.push([prefix + 'MED', values.med]);
@@ -143,14 +173,14 @@ function extractMetrics(data) {
     metrics.push(["RequestsTotal", data.metrics.iterations.values.count]);
     metrics.push(["RequestsPassed", data.metrics.checks.values.passes]);
     metrics.push(["RequestsFailed", data.metrics.checks.values.fails]);
-    addTrendMetrics(metrics, "ReqDuration_Ms ", data.metrics.http_req_duration.values);
-    addTrendMetrics(metrics,"XMsAllocationTime_Ms ",data.metrics.X_Ms_Allocation_Time.values);
-    addTrendMetrics(metrics,"XMsContainerExecutionDuration_Ms ",data.metrics.X_Ms_Container_Execution_Duration.values);
-    addTrendMetrics(metrics,"XMsExecutionReadResponseTime_Ms ",data.metrics.X_Ms_Execution_Read_Response_Time.values);
-    addTrendMetrics(metrics,"XMsExecutionRequestTime_Ms ",data.metrics.X_Ms_Execution_Request_Time.values);
-    addTrendMetrics(metrics,"XMsOverallExecutionTime_Ms ",data.metrics.X_Ms_Overall_Execution_Time.values);
-    addTrendMetrics(metrics,"XMsPreparationTime_Ms ",data.metrics.X_Ms_Preparation_Time.values);
-    addTrendMetrics(metrics,"XMsTotalExecutionServiceTime_Ms ",data.metrics.X_Ms_Total_Execution_Service_Time.values);
+    addTrendMetrics(metrics, "ReqDuration_Ms ", data.metrics.http_req_duration);
+    addTrendMetrics(metrics,"XMsAllocationTime_Ms ",data.metrics.X_Ms_Allocation_Time);
+    addTrendMetrics(metrics,"XMsContainerExecutionDuration_Ms ",data.metrics.X_Ms_Container_Execution_Duration);
+    addTrendMetrics(metrics,"XMsExecutionReadResponseTime_Ms ",data.metrics.X_Ms_Execution_Read_Response_Time);
+    addTrendMetrics(metrics,"XMsExecutionRequestTime_Ms ",data.metrics.X_Ms_Execution_Request_Time);
+    addTrendMetrics(metrics,"XMsOverallExecutionTime_Ms ",data.metrics.X_Ms_Overall_Execution_Time);
+    addTrendMetrics(metrics,"XMsPreparationTime_Ms ",data.metrics.X_Ms_Preparation_Time);
+    addTrendMetrics(metrics,"XMsTotalExecutionServiceTime_Ms ",data.metrics.X_Ms_Total_Execution_Service_Time);
 
     return metrics;
 }
