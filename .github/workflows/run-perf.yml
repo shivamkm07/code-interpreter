@@ -2,14 +2,22 @@ name: perf-test
 on:
   workflow_dispatch:
     inputs:
+      scenario_type:
+        type: choice
+        description: 'Scenario type'
+        required: true
+        options:
+        - constant
+        - ramping
       qps:
-        description: 'QPS'
+        description: 'QPS(only used for constant scenario)'
         required: true
         default: 1
       duration:
-        description: 'Duration'
+        description: 'Duration(only used for constant scenario)'
         required: true
         default: '10s'
+      
   push:
     branches:
       - main
@@ -30,7 +38,7 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "QPS=${{ github.event.inputs.qps }}" >> $GITHUB_ENV
             echo "DURATION=${{ github.event.inputs.duration }}" >> $GITHUB_ENV
-            echo "SCENARIO_TYPE=constant" >> $GITHUB_ENV
+            echo "SCENARIO_TYPE=${{ github.event.inputs.scenario_type }}" >> $GITHUB_ENV
           else
             echo "SCENARIO_TYPE=ramping" >> $GITHUB_ENV
           fi
