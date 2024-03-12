@@ -92,17 +92,25 @@ export function setup() {
   createSessionPool();
 }
 
+function getSessionID(){
+  return getRunID() + `_${exec.scenario.iterationInTest}`;
+}
+
 function execute() {
     const url = 'http://localhost:8080/execute';
     const payload = JSON.stringify({
       code: "1+2"
     });
+    let sessionId = getSessionID();
   
     const params = {
       headers: {
         'Content-Type': 'application/json',
-        'IDENTIFIER': getRunID() + `_${exec.scenario.iterationInTest}`,
+        'IDENTIFIER': sessionId,
       },
+      tags: {
+        sessionId: sessionId,
+      }
     };
   
     const res = http.post(url, payload, params);
@@ -111,27 +119,33 @@ function execute() {
 
 function recordXMsMetrics(headers){
     if('X-Ms-Allocation-Time' in headers){
-      XMsAllocationTime.add(headers['X-Ms-Allocation-Time']);
+      XMsAllocationTime.add(headers['X-Ms-Allocation-Time'], { sessionId: getSessionID() });
     }
     if('X-Ms-Container-Execution-Duration' in headers){
-      XMsContainerExecutionDuration.add(headers['X-Ms-Container-Execution-Duration']);
+      XMsContainerExecutionDuration.add(headers['X-Ms-Container-Execution-Duration'], { sessionId: getSessionID() });
     }
     if('X-Ms-Execution-Read-Response-Time' in headers){
-      XMsExecutionReadResponseTime.add(headers['X-Ms-Execution-Read-Response-Time']);
+      XMsExecutionReadResponseTime.add(headers['X-Ms-Execution-Read-Response-Time'], { sessionId: getSessionID() });
     }
     if('X-Ms-Execution-Request-Time' in headers){
-      XMsExecutionRequestTime.add(headers['X-Ms-Execution-Request-Time']);
+      XMsExecutionRequestTime.add(headers['X-Ms-Execution-Request-Time'], { sessionId: getSessionID() });
     }
     if('X-Ms-Overall-Execution-Time' in headers){
-      XMsOverallExecutionTime.add(headers['X-Ms-Overall-Execution-Time']);
+      XMsOverallExecutionTime.add(headers['X-Ms-Overall-Execution-Time'], { sessionId: getSessionID() });
     }
     if('X-Ms-Preparation-Time' in headers){
-      XMsPreparationTime.add(headers['X-Ms-Preparation-Time']);
+      XMsPreparationTime.add(headers['X-Ms-Preparation-Time'], { sessionId: getSessionID() });
     }
     if('X-Ms-Total-Execution-Service-Time' in headers){
-      XMsTotalExecutionServiceTime.add(headers['X-Ms-Total-Execution-Service-Time']);
+      XMsTotalExecutionServiceTime.add(headers['X-Ms-Total-Execution-Service-Time'], { sessionId: getSessionID() });
     }
 }
+
+// function filterPointData(metric){
+//   let data = JSON.parse(fs.readFileSync('./test_results.json', 'utf8'));
+//   let filteredData = data.filter(item => item.type == "Point" && item.metric == metric);
+//   return filteredData;
+// }
 
 export default function () {
     let result = execute();
@@ -208,13 +222,13 @@ function extractMetrics(data) {
     return metrics;
 }
 
-function publishMetricsToEventHubs(metrics){
+function publishMetricsSummaryToEventHubs(metrics){
     let metricsObj = metrics.reduce((obj, item) => {
       obj[item[0]] = item[1];
       return obj;
     }, {});
 
-    const url = 'http://localhost:8080/publish-eventhubs';
+    const url = 'http://localhost:8080/publish-metrics-summary';
     const payload = JSON.stringify(metricsObj);
     const params = {
       headers: {
@@ -231,12 +245,32 @@ function publishMetricsToEventHubs(metrics){
     return res;
 }
 
+function publishRealTimeMetricsToEventHubs(){
+    const url = 'http://localhost:8080/publish-metrics-real-time';
+    const params = {
+      headers: {
+        'RunID': getRunID(),
+      },
+    };
+
+    const res = http.get(url, params);
+    if(res.status < 200 || res.status >= 300){
+      console.log("ERROR: PublishRealTimeMetricsToEventHubs Request failed with status: " + res.status + ". Response: " + res.body);
+    } else{
+      console.log("Real time metrics published to EventHubs successfully");
+    }
+    return res;
+}
+
 export function handleSummary(data) {
     let metrics = extractMetrics(data);
-    publishMetricsToEventHubs(metrics);
+    publishMetricsSummaryToEventHubs(metrics);
+    publishRealTimeMetricsToEventHubs();
 
     // Converting values to string as k6 summary does not support numbers
     metrics = metrics.map(item => [item[0], String(item[1])]);
+    // httprePointMetrics = filterPointData("http_req_duration");
+    // console.log("httprePointMetrics: " + JSON.stringify(httprePointMetrics));
     return {
       stdout: textSummary(data, {enableColors: true }),
       'test_perf_report_summary.json': JSON.stringify(data),

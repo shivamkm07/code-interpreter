@@ -2,3 +2,4 @@ jupyterpython
 tests/perf/app/app
 k6
 test_perf_*
+real-time-metrics.json

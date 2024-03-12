@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -76,8 +78,10 @@ type CreatePoolResponseProperties struct {
 
 const (
 	poolManagementURLFormat       = "https://management.azure.com/subscriptions/aa1bd316-43b3-463e-b78f-0d598e3b8972/resourceGroups/sessions-load-test/providers/Microsoft.App/sessionPools/%s?api-version=2023-08-01-preview"
-	eventHubsNamespace            = "capps-test.servicebus.windows.net"
-	eventHubName                  = "sessions-loadtest-results"
+	eventHubsNamespace            = "my-capps-test.servicebus.windows.net"
+	eventHubSummaryName           = "sessions-loadtest-results2"
+	eventHubRealTimeName          = "sessions-loadtest-results-realtime2"
+	HTTPReqDuration               = "http_req_duration"
 	XMsAllocationTime             = "X-Ms-Allocation-Time"
 	XMsContainerExecutionDuration = "X-Ms-Container-Execution-Duration"
 	XMsExecutionReadResponseTime  = "X-Ms-Execution-Read-Response-Time"
@@ -85,6 +89,7 @@ const (
 	XMsOverallExecutionTime       = "X-Ms-Overall-Execution-Time"
 	XMsPreparationTime            = "X-Ms-Preparation-Time"
 	XMsTotalExecutionServiceTime  = "X-Ms-Total-Execution-Service-Time"
+	RealTimeMetricsFile           = "real-time-metrics.json"
 )
 
 var (
@@ -96,6 +101,14 @@ func getHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout: time.Second * 60,
 	}
+}
+
+func getRealTimeMetricsFileName() string {
+	fileName := os.Getenv("REAL_TIME_METRICS_FILE")
+	if fileName == "" {
+		fileName = RealTimeMetricsFile
+	}
+	return fileName
 }
 
 func isSuccessStatusCode(statusCode int) bool {
@@ -154,7 +167,107 @@ func copyXMsHeaderValues(respHeader http.Header, w http.ResponseWriter) {
 	}
 }
 
+type RealTimeMetric struct {
+	Type   string                 `json:"type"`
+	Metric string                 `json:"metric"`
+	Data   map[string]interface{} `json:"data"`
+}
+
+type SessionMetric struct {
+	RunID     string  `json:"RunID"`
+	SessionID string  `json:"SessionID"`
+	Metric    string  `json:"Metric"`
+	Value     float64 `json:"Value"`
+}
+
+func parseRealTimeMetrics(runId string) ([]SessionMetric, error) {
+	fmt.Println(getRealTimeMetricsFileName())
+	file, err := os.Open(getRealTimeMetricsFileName())
+	if err != nil {
+		return nil, fmt.Errorf("error opening real-time metrics file: %s", err.Error())
+	}
+	defer file.Close()
+	var metrics []RealTimeMetric
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		var metric RealTimeMetric
+		// fmt.Println(string(scanner.Bytes()))
+		err := json.Unmarshal(scanner.Bytes(), &metric)
+		if err != nil {
+			return nil, fmt.Errorf("error unmarshalling real-time metrics file: %s", err.Error())
+		}
+		metrics = append(metrics, metric)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading real-time metrics file: %s", err.Error())
+	}
+	requiredMetrics := map[string]string{
+		"http_req_duration":                 "ReqDuration_Ms",
+		"X_Ms_Allocation_Time":              "XMsAllocationTime_Ms",
+		"X_Ms_Container_Execution_Duration": "XMsContainerExecutionDuration_Ms",
+		"X_Ms_Execution_Read_Response_Time": "XMsExecutionReadResponseTime_Ms",
+		"X_Ms_Execution_Request_Time":       "XMsExecutionRequestTime_Ms",
+		"X_Ms_Overall_Execution_Time":       "XMsOverallExecutionTime_Ms",
+		"X_Ms_Preparation_Time":             "XMsPreparationTime_Ms",
+		"X_Ms_Total_Execution_Service_Time": "XMsTotalExecutionServiceTime_Ms",
+	}
+	var sessionMetrics []SessionMetric
+	for _, metric := range metrics {
+		// fmt.Println(metric)
+		if metric.Type == "Point" {
+			if name, ok := requiredMetrics[metric.Metric]; ok {
+				value := float64(0)
+				sessionId := ""
+				if val, ok := metric.Data["value"].(float64); ok {
+					value = val
+				}
+				if tags, ok := metric.Data["tags"].(map[string]interface{}); ok {
+					if id, ok := tags["sessionId"].(string); ok {
+						sessionId = id
+					}
+				}
+				if sessionId == "" {
+					continue
+				}
+				sessionMetrics = append(sessionMetrics, SessionMetric{
+					RunID:     runId,
+					SessionID: sessionId,
+					Metric:    name,
+					Value:     value,
+				})
+			}
+		}
+	}
+	return sessionMetrics, nil
+}
+
 func rootHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
+func publishMetricsRealTimeHandler(w http.ResponseWriter, r *http.Request) {
+	runId := r.Header.Get("RunID")
+	if runId == "" {
+		runId = uuid.New().String()
+	}
+	sessionMetrics, err := parseRealTimeMetrics(runId)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error parsing real-time metrics: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+	sessionMetricsJSON, err := json.Marshal(sessionMetrics)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error marshalling sessionMetrics: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+	logger.Info("Real-time metrics: ", string(sessionMetricsJSON))
+	err = publishDataToEventHubs(eventHubsNamespace, eventHubRealTimeName, sessionMetricsJSON)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error publishing data to Event Hubs: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+	logger.Info("Real-time metrics published to Event Hubs Successfully")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
 }
@@ -318,48 +431,49 @@ func executeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(respBody)
 }
 
-func publishEventHubsHandler(w http.ResponseWriter, r *http.Request) {
+func publishDataToEventHubs(eventHubsNamespace, eventHubName string, data []byte) error {
+	defaultAzureCred, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		return fmt.Errorf("error creating DefaultAzureCredential: %s", err.Error())
+	}
+
+	producerClient, err := azeventhubs.NewProducerClient(eventHubsNamespace, eventHubName, defaultAzureCred, nil)
+	if err != nil {
+		return fmt.Errorf("error creating ProducerClient: %s", err.Error())
+	}
+
+	batch, err := producerClient.NewEventDataBatch(context.TODO(), &azeventhubs.EventDataBatchOptions{})
+	if err != nil {
+		return fmt.Errorf("error creating EventDataBatch: %s", err.Error())
+	}
+	event := &azeventhubs.EventData{
+		Body: data,
+	}
+	err = batch.AddEventData(event, nil)
+	if err != nil {
+		return fmt.Errorf("error adding event to EventDataBatch: %s", err.Error())
+	}
+	err = producerClient.SendEventDataBatch(context.TODO(), batch, nil)
+	if err != nil {
+		return fmt.Errorf("error sending EventDataBatch: %s", err.Error())
+	}
+	return nil
+}
+
+func publishMetricsSummaryHandler(w http.ResponseWriter, r *http.Request) {
 	reqBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		logAndReturnError(w, fmt.Sprintf("Error reading publish request body: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
-
-	defaultAzureCred, err := azidentity.NewDefaultAzureCredential(nil)
+	err = publishDataToEventHubs(eventHubsNamespace, eventHubSummaryName, reqBody)
 	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error creating DefaultAzureCredential: %s", err.Error()), http.StatusInternalServerError)
+		logAndReturnError(w, fmt.Sprintf("Error publishing data to Event Hubs: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
-
-	producerClient, err := azeventhubs.NewProducerClient(eventHubsNamespace, eventHubName, defaultAzureCred, nil)
-	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error creating ProducerClient: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	batch, err := producerClient.NewEventDataBatch(context.TODO(), &azeventhubs.EventDataBatchOptions{})
-	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error creating EventDataBatch: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-	event := &azeventhubs.EventData{
-		Body: reqBody,
-	}
-	err = batch.AddEventData(event, nil)
-	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error adding event to EventDataBatch: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-	err = producerClient.SendEventDataBatch(context.TODO(), batch, nil)
-	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error sending EventDataBatch: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	logger.Info("Metrics published to Event Hubs Successfully")
+	logger.Info("Metrics summary published to Event Hubs Successfully")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
-
 }
 
 func main() {
@@ -367,7 +481,8 @@ func main() {
 	r.HandleFunc("/", rootHandler)
 	r.HandleFunc("/create-pool", createPoolHandler)
 	r.HandleFunc("/execute", executeHandler)
-	r.HandleFunc("/publish-eventhubs", publishEventHubsHandler)
+	r.HandleFunc("/publish-metrics-summary", publishMetricsSummaryHandler)
+	r.HandleFunc("/publish-metrics-real-time", publishMetricsRealTimeHandler)
 
 	logger.Info("Starting server on port 8080")
 	http.ListenAndServe(":8080", r)
