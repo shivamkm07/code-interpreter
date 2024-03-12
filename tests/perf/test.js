@@ -13,7 +13,7 @@ const XMsExecutionRequestTime = new Trend('X_Ms_Execution_Request_Time');
 const XMsOverallExecutionTime = new Trend('X_Ms_Overall_Execution_Time');
 const XMsPreparationTime = new Trend('X_Ms_Preparation_Time');
 const XMsTotalExecutionServiceTime = new Trend('X_Ms_Total_Execution_Service_Time');
-const ncusStageRegion = "North Central US(Stage)"
+const ncusStageRegion = "North Central US(Stage)";
 
 function getQPS(){
   if(__ENV.QPS){
@@ -68,6 +68,29 @@ export const options = {
       scenario: scenarios[getScenarioType()],
     },
 };
+
+function createSessionPool(){
+  const url = 'http://localhost:8080/create-pool';
+  const payload = JSON.stringify({
+    location: getRegion(),
+  });
+  const params = {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  };
+  const res = http.post(url, payload, params);
+  if(res.status < 200 || res.status >= 300){
+    console.log("ERROR: Request failed with status: " + res.status + ". Response: " + res.body);
+  } else{
+    console.log("Session pool created successfully");
+  }
+  return res;
+}
+
+export function setup() {
+  createSessionPool();
+}
 
 function execute() {
     const url = 'http://localhost:8080/execute';
@@ -138,9 +161,9 @@ function addTrendMetrics(metrics, prefix, metric) {
   metrics.push([prefix + 'P99.9', values['p(99.9)']]);
 }
 
-function getTestRegion(){
-  if(__ENV.TEST_REGION){
-    return `${__ENV.TEST_REGION}`
+function getRegion(){
+  if(__ENV.REGION){
+    return `${__ENV.REGION}`
   }
     return ncusStageRegion;
 }
@@ -169,7 +192,7 @@ function extractMetrics(data) {
     metrics.push(["StartTime", testStartTime]);
     metrics.push(["EndTime", testEndTime]);
     metrics.push(["TestDuration_Min", ((testEndTime - testStartTime)/60000)]);
-    metrics.push(["Region", getTestRegion()]);
+    metrics.push(["Region", getRegion()]);
     metrics.push(["RequestsTotal", data.metrics.iterations.values.count]);
     metrics.push(["RequestsPassed", data.metrics.checks.values.passes]);
     metrics.push(["RequestsFailed", data.metrics.checks.values.fails]);

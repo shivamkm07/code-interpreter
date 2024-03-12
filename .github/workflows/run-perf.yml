@@ -17,6 +17,18 @@ on:
         description: 'Duration(only used for constant scenario)'
         required: true
         default: '10s'
+      region:
+        type: choice
+        description: 'Region'
+        required: true
+        options:
+        - northcentralusstage
+        - northcentralus
+        - eastus
+        - westus2
+        - northeurope
+        - koreacentral
+        - eastasia
       
   push:
     branches:
@@ -42,6 +54,7 @@ jobs:
           else
             echo "SCENARIO_TYPE=ramping" >> $GITHUB_ENV
           fi
+          echo "REGION=${{ github.event.inputs.region }}" >> $GITHUB_ENV
         env:
           QPS_DEFAULT: 1
           DURATION_DEFAULT: '10s'
