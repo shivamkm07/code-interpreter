@@ -256,16 +256,23 @@ func publishMetricsRealTimeHandler(w http.ResponseWriter, r *http.Request) {
 		logAndReturnError(w, fmt.Sprintf("Error parsing real-time metrics: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
-	sessionMetricsJSON, err := json.Marshal(sessionMetrics)
-	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error marshalling sessionMetrics: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-	logger.Info("Real-time metrics: ", string(sessionMetricsJSON))
-	err = publishDataToEventHubs(eventHubsNamespace, eventHubRealTimeName, sessionMetricsJSON)
-	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error publishing data to Event Hubs: %s", err.Error()), http.StatusInternalServerError)
-		return
+	chunkSize := 10000
+	for i := 0; i < len(sessionMetrics); i += chunkSize {
+		end := i + chunkSize
+		if end > len(sessionMetrics) {
+			end = len(sessionMetrics)
+		}
+		sessionMetricsChunk := sessionMetrics[i:end]
+		sessionMetricsJSON, err := json.Marshal(sessionMetricsChunk)
+		if err != nil {
+			logAndReturnError(w, fmt.Sprintf("Error marshalling sessionMetrics: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+		err = publishDataToEventHubs(eventHubsNamespace, eventHubRealTimeName, sessionMetricsJSON)
+		if err != nil {
+			logAndReturnError(w, fmt.Sprintf("Error publishing data to Event Hubs: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
 	}
 	logger.Info("Real-time metrics published to Event Hubs Successfully")
 	w.WriteHeader(http.StatusOK)
