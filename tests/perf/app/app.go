@@ -81,7 +81,7 @@ const (
 	poolManagementURLFormat       = "https://management.azure.com/subscriptions/aa1bd316-43b3-463e-b78f-0d598e3b8972/resourceGroups/sessions-load-test/providers/Microsoft.App/sessionPools/%s?api-version=2023-08-01-preview"
 	eventHubsNamespace            = "capps-test.servicebus.windows.net"
 	eventHubSummaryName           = "sessions-loadtest-results-summary"
-	eventHubRealTimeName          = "sessions-loadtest-results-realtime"
+	eventHubRealTimeName          = "sessions-loadtest-results-all"
 	HTTPReqDuration               = "http_req_duration"
 	XMsAllocationTime             = "X-Ms-Allocation-Time"
 	XMsContainerExecutionDuration = "X-Ms-Container-Execution-Duration"
