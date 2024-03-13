@@ -301,6 +301,18 @@ func publishMetricsRealTimeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
+func getPoolManagementReq(method string, poolManagementURL string, token string, reqBody []byte) (*http.Request, error) {
+	req, err := http.NewRequest(method, poolManagementURL, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %s", err.Error())
+	}
+	req.Header = http.Header{
+		"Authorization": []string{fmt.Sprintf("Bearer %s", token)},
+		"Content-Type":  []string{"application/json"},
+	}
+	return req, nil
+}
+
 func createPoolHandler(w http.ResponseWriter, r *http.Request) {
 	reqBody, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -334,26 +346,34 @@ func createPoolHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	poolManagementURL := fmt.Sprintf(poolManagementURLFormat, testPoolName)
-	logger.Info("Sending request to ", poolManagementURL)
-	req, err := http.NewRequest("PUT", poolManagementURL, bytes.NewBuffer(CreatePoolBodyJSON))
-	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error creating request: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
 	managementToken, err := getManagementToken()
 	if err != nil {
 		logAndReturnError(w, fmt.Sprintf("Error getting management token: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
-	req.Header = http.Header{
-		"Authorization": []string{fmt.Sprintf("Bearer %s", managementToken)},
-		"Content-Type":  []string{"application/json"},
-	}
 	client := getHTTPClient()
+
+	// Delete existing pool if it exists
+	req, err := getPoolManagementReq("DELETE", poolManagementURL, managementToken, nil)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error creating DELETE request: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+	_, err = client.Do(req)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error sending DELETE request: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+	// Create new pool
+	req, err = getPoolManagementReq("PUT", poolManagementURL, managementToken, CreatePoolBodyJSON)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error creating PUT request: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
 	start := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error sending request: %s", err.Error()), http.StatusInternalServerError)
+		logAndReturnError(w, fmt.Sprintf("Error sending PUT request: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
 	delay := time.Since(start)
