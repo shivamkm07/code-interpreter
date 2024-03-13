@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -174,10 +175,12 @@ type RealTimeMetric struct {
 }
 
 type SessionMetric struct {
-	RunID     string  `json:"RunID"`
-	SessionID string  `json:"SessionID"`
-	Metric    string  `json:"Metric"`
-	Value     float64 `json:"Value"`
+	TIMESTAMP time.Time `json:"TIMESTAMP"`
+	RunID     string    `json:"RunID"`
+	SessionID string    `json:"SessionID"`
+	Metric    string    `json:"Metric"`
+	Value     float64   `json:"Value"`
+	Passed    bool      `json:"Passed"`
 }
 
 func parseRealTimeMetrics(runId string) ([]SessionMetric, error) {
@@ -218,22 +221,41 @@ func parseRealTimeMetrics(runId string) ([]SessionMetric, error) {
 			if name, ok := requiredMetrics[metric.Metric]; ok {
 				value := float64(0)
 				sessionId := ""
+				statusCode := 0
+				var timeStamp time.Time
 				if val, ok := metric.Data["value"].(float64); ok {
 					value = val
+				}
+				if ts, ok := metric.Data["time"].(string); ok {
+					timeStamp, err = time.Parse(time.RFC3339, ts)
+					if err != nil {
+						return nil, fmt.Errorf("error parsing time: %s", err.Error())
+					}
+				} else {
+					continue
 				}
 				if tags, ok := metric.Data["tags"].(map[string]interface{}); ok {
 					if id, ok := tags["sessionId"].(string); ok {
 						sessionId = id
 					}
+					if status, ok := tags["status"]; ok {
+						statusCode, err = strconv.Atoi(status.(string))
+						if err != nil {
+							return nil, fmt.Errorf("error converting status code to int: %s", err.Error())
+						}
+					}
 				}
-				if sessionId == "" {
+				if sessionId == "" || statusCode == 0 {
 					continue
 				}
+				passed := statusCode >= 200 && statusCode < 300
 				sessionMetrics = append(sessionMetrics, SessionMetric{
+					TIMESTAMP: timeStamp,
 					RunID:     runId,
 					SessionID: sessionId,
 					Metric:    name,
 					Value:     value,
+					Passed:    passed,
 				})
 			}
 		}

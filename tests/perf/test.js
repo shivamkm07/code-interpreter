@@ -13,7 +13,7 @@ const XMsExecutionRequestTime = new Trend('X_Ms_Execution_Request_Time');
 const XMsOverallExecutionTime = new Trend('X_Ms_Overall_Execution_Time');
 const XMsPreparationTime = new Trend('X_Ms_Preparation_Time');
 const XMsTotalExecutionServiceTime = new Trend('X_Ms_Total_Execution_Service_Time');
-const ncusStageRegion = "North Central US(Stage)";
+const ncusStageRegion = "northcentralusstage";
 
 function getQPS(){
   if(__ENV.QPS){
@@ -117,27 +117,27 @@ function execute() {
     return res;
 }
 
-function recordXMsMetrics(headers){
+function recordXMsMetrics(headers, status){
     if('X-Ms-Allocation-Time' in headers){
-      XMsAllocationTime.add(headers['X-Ms-Allocation-Time'], { sessionId: getSessionID() });
+      XMsAllocationTime.add(headers['X-Ms-Allocation-Time'], { sessionId: getSessionID(), status: status});
     }
     if('X-Ms-Container-Execution-Duration' in headers){
-      XMsContainerExecutionDuration.add(headers['X-Ms-Container-Execution-Duration'], { sessionId: getSessionID() });
+      XMsContainerExecutionDuration.add(headers['X-Ms-Container-Execution-Duration'], { sessionId: getSessionID(), status: status});
     }
     if('X-Ms-Execution-Read-Response-Time' in headers){
-      XMsExecutionReadResponseTime.add(headers['X-Ms-Execution-Read-Response-Time'], { sessionId: getSessionID() });
+      XMsExecutionReadResponseTime.add(headers['X-Ms-Execution-Read-Response-Time'], { sessionId: getSessionID(), status: status});
     }
     if('X-Ms-Execution-Request-Time' in headers){
-      XMsExecutionRequestTime.add(headers['X-Ms-Execution-Request-Time'], { sessionId: getSessionID() });
+      XMsExecutionRequestTime.add(headers['X-Ms-Execution-Request-Time'], { sessionId: getSessionID(), status: status});
     }
     if('X-Ms-Overall-Execution-Time' in headers){
-      XMsOverallExecutionTime.add(headers['X-Ms-Overall-Execution-Time'], { sessionId: getSessionID() });
+      XMsOverallExecutionTime.add(headers['X-Ms-Overall-Execution-Time'], { sessionId: getSessionID(), status: status});
     }
     if('X-Ms-Preparation-Time' in headers){
-      XMsPreparationTime.add(headers['X-Ms-Preparation-Time'], { sessionId: getSessionID() });
+      XMsPreparationTime.add(headers['X-Ms-Preparation-Time'], { sessionId: getSessionID(), status: status});
     }
     if('X-Ms-Total-Execution-Service-Time' in headers){
-      XMsTotalExecutionServiceTime.add(headers['X-Ms-Total-Execution-Service-Time'], { sessionId: getSessionID() });
+      XMsTotalExecutionServiceTime.add(headers['X-Ms-Total-Execution-Service-Time'], { sessionId: getSessionID(), status: status});
     }
 }
 
@@ -156,7 +156,8 @@ export default function () {
         'response code was 2xx': (result) =>
             result.status >= 200 && result.status < 300,
     })
-    recordXMsMetrics(result.headers)
+    let status = result.status.toString();
+    recordXMsMetrics(result.headers, status)
 }
 
 function addTrendMetrics(metrics, prefix, metric) {
