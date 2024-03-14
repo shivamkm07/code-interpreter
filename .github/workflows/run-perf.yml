@@ -72,6 +72,10 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET}}
       
+      - name: Create Session Pool
+        run: |
+          make create-pool
+
       - name: Run perf test
         run: |
           make run-perf-test

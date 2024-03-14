@@ -55,7 +55,7 @@ let scenarios = {
     rate: getQPS(),
     timeUnit: '1s',
     duration: getDuration(),
-    preAllocatedVUs: 3*getQPS(),
+    preAllocatedVUs: 5*getQPS(),
   }
 }
 
@@ -69,29 +69,6 @@ export const options = {
     },
 };
 
-function createSessionPool(){
-  const url = 'http://localhost:8080/create-pool';
-  const payload = JSON.stringify({
-    location: getRegion(),
-  });
-  const params = {
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  };
-  const res = http.post(url, payload, params);
-  if(res.status < 200 || res.status >= 300){
-    console.log("ERROR: Request failed with status: " + res.status + ". Response: " + res.body);
-  } else{
-    console.log("Session pool created successfully");
-  }
-  return res;
-}
-
-export function setup() {
-  createSessionPool();
-}
-
 function getSessionID(){
   return getRunID() + `_${exec.scenario.iterationInTest}`;
 }
@@ -99,7 +76,8 @@ function getSessionID(){
 function execute() {
     const url = 'http://localhost:8080/execute';
     const payload = JSON.stringify({
-      code: "1+2"
+      code: "1+2",
+      location: getRegion(),
     });
     let sessionId = getSessionID();
   

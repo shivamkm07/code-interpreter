@@ -52,6 +52,12 @@ install-perf-deps:
 	rm k6-v$(K6_VERSION)-linux-amd64.tar.gz
 	chmod +x k6
 
+create-pool:
+	response=$$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" -d '{"location":"$(REGION)"}' http://localhost:8080/create-pool); \
+	if [ "$$response" -lt 200 ] || [ "$$response" -ge 300 ]; then \
+		echo "POST request failed with status $$response"; \
+		exit 1; \
+	fi
 
 run-perf-test: install-perf-deps
 	# ./hey -n 5 -c 5 -m POST -T 'application/json' -d '{"code":"1+2"}' http://localhost:8080/execute

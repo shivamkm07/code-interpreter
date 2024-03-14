@@ -22,7 +22,8 @@ import (
 )
 
 type ExecuteRequest struct {
-	Code string `json:"code"`
+	Code     string `json:"code"`
+	Location string `json:"location"`
 }
 
 // Create a logger
@@ -91,11 +92,12 @@ const (
 	XMsPreparationTime            = "X-Ms-Preparation-Time"
 	XMsTotalExecutionServiceTime  = "X-Ms-Total-Execution-Service-Time"
 	RealTimeMetricsFile           = "real-time-metrics.json"
+	ncusStageRegion               = "northcentralusstage"
 )
 
 var (
 	sessionsToken        = ""
-	sessionsPoolEndpoint = "https://northcentralusstage.acasessions.io/subscriptions/aa1bd316-43b3-463e-b78f-0d598e3b8972/resourceGroups/sessions-perf-northcentralus/sessionPools/testpool/python/execute"
+	sessionsPoolEndpoint = ""
 )
 
 func getHTTPClient() *http.Client {
@@ -353,22 +355,13 @@ func getPoolManagementReq(method string, poolManagementURL string, token string,
 	return req, nil
 }
 
-func createPoolHandler(w http.ResponseWriter, r *http.Request) {
-	reqBody, err := io.ReadAll(r.Body)
-	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error reading create pool request body: %s", err.Error()), http.StatusInternalServerError)
-		return
+func createPool(location string) error {
+	if location == "" {
+		location = ncusStageRegion
 	}
-	createPoolHandlerRequest := &CreatePoolHandlerRequest{}
-	err = json.Unmarshal(reqBody, createPoolHandlerRequest)
-	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error unmarshalling create pool request body: %s", err.Error()), http.StatusInternalServerError)
-		return
-	}
-
-	testPoolName := "testpool-" + createPoolHandlerRequest.Location
+	testPoolName := "testpool-" + location
 	CreatePoolBody := &CreatePoolBody{
-		Location: createPoolHandlerRequest.Location,
+		Location: location,
 		Properties: &CreatePoolProperties{
 			PoolManagementType:    "Dynamic",
 			MaxConcurrentSessions: 4000,
@@ -382,39 +375,33 @@ func createPoolHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	CreatePoolBodyJSON, err := json.Marshal(CreatePoolBody)
 	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error marshalling create pool request body: %s", err.Error()), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("error marshalling create pool request body: %s", err.Error())
 	}
 	poolManagementURL := fmt.Sprintf(poolManagementURLFormat, testPoolName)
 	managementToken, err := getManagementToken()
 	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error getting management token: %s", err.Error()), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("error getting management token: %s", err.Error())
 	}
 	client := getHTTPClient()
 
 	// Delete existing pool if it exists
 	req, err := getPoolManagementReq("DELETE", poolManagementURL, managementToken, nil)
 	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error creating DELETE request: %s", err.Error()), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("error creating DELETE request: %s", err.Error())
 	}
 	_, err = client.Do(req)
 	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error sending DELETE request: %s", err.Error()), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("error sending DELETE request: %s", err.Error())
 	}
 	// Create new pool
 	req, err = getPoolManagementReq("PUT", poolManagementURL, managementToken, CreatePoolBodyJSON)
 	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error creating PUT request: %s", err.Error()), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("error creating PUT request: %s", err.Error())
 	}
 	start := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error sending PUT request: %s", err.Error()), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("error sending PUT request: %s", err.Error())
 	}
 	delay := time.Since(start)
 	if resp.Body != nil {
@@ -422,25 +409,43 @@ func createPoolHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error reading response body: %s", err.Error()), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("error reading response body: %s", err.Error())
 	}
 	if !isSuccessStatusCode(resp.StatusCode) {
-		logAndReturnError(w, fmt.Sprintf("Error: Pool creation failed in %d ms. Response received: %s", delay.Milliseconds(), string(respBody)), resp.StatusCode)
-		return
+		return fmt.Errorf("error: Pool creation failed in %d ms. Response received: %s", delay.Milliseconds(), string(respBody))
 	}
 	logger.Infof("Success: Pool created in %d ms. Response received: %s", delay.Milliseconds(), string(respBody))
 	createPoolResponse := &CreatePoolResponse{}
 	err = json.Unmarshal(respBody, createPoolResponse)
 	if err != nil {
-		logAndReturnError(w, fmt.Sprintf("Error unmarshalling response body: %s", err.Error()), http.StatusInternalServerError)
-		return
+		return fmt.Errorf("error unmarshalling response body: %s", err.Error())
 	}
 	sessionsPoolEndpoint = createPoolResponse.Properties.PoolManagementEndpoint
 	logger.Infof("Session pool endpoint set to: %s", sessionsPoolEndpoint)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	w.Write(respBody)
+	return nil
+}
+
+func createPoolHandler(w http.ResponseWriter, r *http.Request) {
+	createPoolHandlerRequest := &CreatePoolHandlerRequest{}
+	if r.Body != nil {
+		reqBody, err := io.ReadAll(r.Body)
+		if err != nil {
+			logAndReturnError(w, fmt.Sprintf("Error reading create pool request body: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+		err = json.Unmarshal(reqBody, createPoolHandlerRequest)
+		if err != nil {
+			logAndReturnError(w, fmt.Sprintf("Error unmarshalling create pool request body: %s", err.Error()), http.StatusInternalServerError)
+			return
+		}
+	}
+	err := createPool(createPoolHandlerRequest.Location)
+	if err != nil {
+		logAndReturnError(w, fmt.Sprintf("Error creating pool: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
 }
 
 func executeHandler(w http.ResponseWriter, r *http.Request) {
@@ -453,6 +458,10 @@ func executeHandler(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(reqBody, executeRequest)
 	if err != nil {
 		logAndReturnError(w, fmt.Sprintf("Error unmarshalling request body: %s", err.Error()), http.StatusInternalServerError)
+		return
+	}
+	if sessionsPoolEndpoint == "" {
+		logAndReturnError(w, "Error: Sessions pool endpoint not set", http.StatusInternalServerError)
 		return
 	}
 	sessionID := r.Header.Get("IDENTIFIER")
