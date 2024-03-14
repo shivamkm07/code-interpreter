@@ -183,7 +183,22 @@ type SessionMetric struct {
 	Passed    bool      `json:"Passed"`
 }
 
-func parseRealTimeMetrics(runId string) ([]SessionMetric, error) {
+type ExecutionMetric struct {
+	TIMESTAMP                        time.Time `json:"TIMESTAMP"`
+	RunID                            string    `json:"RunID"`
+	SessionID                        string    `json:"SessionID"`
+	Passed                           bool      `json:"Passed"`
+	ReqDuration_Ms                   float64   `json:"ReqDuration_Ms"`
+	XMsAllocationTime_Ms             float64   `json:"XMsAllocationTime_Ms"`
+	XMsContainerExecutionDuration_Ms float64   `json:"XMsContainerExecutionDuration_Ms"`
+	XMsExecutionReadResponseTime_Ms  float64   `json:"XMsExecutionReadResponseTime_Ms"`
+	XMsExecutionRequestTime_Ms       float64   `json:"XMsExecutionRequestTime_Ms"`
+	XMsOverallExecutionTime_Ms       float64   `json:"XMsOverallExecutionTime_Ms"`
+	XMsPreparationTime_Ms            float64   `json:"XMsPreparationTime_Ms"`
+	XMsTotalExecutionServiceTime_Ms  float64   `json:"XMsTotalExecutionServiceTime_Ms"`
+}
+
+func parseRealTimeMetrics(runId string) ([]ExecutionMetric, error) {
 	fmt.Println(getRealTimeMetricsFileName())
 	file, err := os.Open(getRealTimeMetricsFileName())
 	if err != nil {
@@ -214,7 +229,7 @@ func parseRealTimeMetrics(runId string) ([]SessionMetric, error) {
 		"X_Ms_Preparation_Time":             "XMsPreparationTime_Ms",
 		"X_Ms_Total_Execution_Service_Time": "XMsTotalExecutionServiceTime_Ms",
 	}
-	var sessionMetrics []SessionMetric
+	executionMetrics := make(map[string]*ExecutionMetric)
 	for _, metric := range metrics {
 		// fmt.Println(metric)
 		if metric.Type == "Point" {
@@ -237,30 +252,55 @@ func parseRealTimeMetrics(runId string) ([]SessionMetric, error) {
 				if tags, ok := metric.Data["tags"].(map[string]interface{}); ok {
 					if id, ok := tags["sessionId"].(string); ok {
 						sessionId = id
+					} else {
+						continue
 					}
-					if status, ok := tags["status"]; ok {
-						statusCode, err = strconv.Atoi(status.(string))
-						if err != nil {
-							return nil, fmt.Errorf("error converting status code to int: %s", err.Error())
+					if name == "ReqDuration_Ms" {
+						if status, ok := tags["status"]; ok {
+							statusCode, err = strconv.Atoi(status.(string))
+							if err != nil {
+								return nil, fmt.Errorf("error converting status code to int: %s", err.Error())
+							}
+						} else {
+							continue
 						}
 					}
 				}
-				if sessionId == "" || statusCode == 0 {
-					continue
-				}
 				passed := statusCode >= 200 && statusCode < 300
-				sessionMetrics = append(sessionMetrics, SessionMetric{
-					TIMESTAMP: timeStamp,
-					RunID:     runId,
-					SessionID: sessionId,
-					Metric:    name,
-					Value:     value,
-					Passed:    passed,
-				})
+				if _, ok := executionMetrics[sessionId]; !ok {
+					executionMetrics[sessionId] = &ExecutionMetric{}
+				}
+				executionMetric := executionMetrics[sessionId]
+				switch name {
+				case "ReqDuration_Ms":
+					executionMetric.ReqDuration_Ms = value
+					executionMetric.Passed = passed
+					executionMetric.TIMESTAMP = timeStamp
+					executionMetric.RunID = runId
+					executionMetric.SessionID = sessionId
+				case "XMsAllocationTime_Ms":
+					executionMetric.XMsAllocationTime_Ms = value
+				case "XMsContainerExecutionDuration_Ms":
+					executionMetric.XMsContainerExecutionDuration_Ms = value
+				case "XMsExecutionReadResponseTime_Ms":
+					executionMetric.XMsExecutionReadResponseTime_Ms = value
+				case "XMsExecutionRequestTime_Ms":
+					executionMetric.XMsExecutionRequestTime_Ms = value
+				case "XMsOverallExecutionTime_Ms":
+					executionMetric.XMsOverallExecutionTime_Ms = value
+				case "XMsPreparationTime_Ms":
+					executionMetric.XMsPreparationTime_Ms = value
+				case "XMsTotalExecutionServiceTime_Ms":
+					executionMetric.XMsTotalExecutionServiceTime_Ms = value
+				}
 			}
 		}
 	}
-	return sessionMetrics, nil
+	executionMetricList := make([]ExecutionMetric, 0, len(executionMetrics))
+	for _, metric := range executionMetrics {
+		executionMetricList = append(executionMetricList, *metric)
+	}
+	return executionMetricList, nil
 }
 
 func rootHandler(w http.ResponseWriter, r *http.Request) {
@@ -278,7 +318,7 @@ func publishMetricsRealTimeHandler(w http.ResponseWriter, r *http.Request) {
 		logAndReturnError(w, fmt.Sprintf("Error parsing real-time metrics: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
-	chunkSize := 10000
+	chunkSize := 5000
 	for i := 0; i < len(sessionMetrics); i += chunkSize {
 		end := i + chunkSize
 		if end > len(sessionMetrics) {
