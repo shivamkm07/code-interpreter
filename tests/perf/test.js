@@ -70,7 +70,7 @@ export const options = {
 };
 
 function getSessionID(){
-  return getRunID() + `_${exec.scenario.iterationInTest}`;
+  return "LoadTest_" + getRunID() + `_${exec.scenario.iterationInTest}`;
 }
 
 function execute() {
