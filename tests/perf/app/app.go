@@ -320,7 +320,7 @@ func publishMetricsRealTimeHandler(w http.ResponseWriter, r *http.Request) {
 		logAndReturnError(w, fmt.Sprintf("Error parsing real-time metrics: %s", err.Error()), http.StatusInternalServerError)
 		return
 	}
-	chunkSize := 300
+	chunkSize := 500
 	for i := 0; i < len(sessionMetrics); i += chunkSize {
 		end := i + chunkSize
 		if end > len(sessionMetrics) {
