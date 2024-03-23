@@ -29,12 +29,11 @@ on:
         - northeurope
         - koreacentral
         - eastasia
-      
   push:
     branches:
       - main
-
-
+  schedule:
+    - cron: '0 */2 * * *'
 jobs:
   validate:
     name: Validate

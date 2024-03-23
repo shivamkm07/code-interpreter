@@ -176,15 +176,6 @@ type RealTimeMetric struct {
 	Data   map[string]interface{} `json:"data"`
 }
 
-type SessionMetric struct {
-	TIMESTAMP time.Time `json:"TIMESTAMP"`
-	RunID     string    `json:"RunID"`
-	SessionID string    `json:"SessionID"`
-	Metric    string    `json:"Metric"`
-	Value     float64   `json:"Value"`
-	Passed    bool      `json:"Passed"`
-}
-
 type ExecutionMetric struct {
 	TIMESTAMP                        time.Time `json:"TIMESTAMP"`
 	RunID                            string    `json:"RunID"`
@@ -211,7 +202,6 @@ func parseRealTimeMetrics(runId string) ([]ExecutionMetric, error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		var metric RealTimeMetric
-		// fmt.Println(string(scanner.Bytes()))
 		err := json.Unmarshal(scanner.Bytes(), &metric)
 		if err != nil {
 			return nil, fmt.Errorf("error unmarshalling real-time metrics file: %s", err.Error())
@@ -233,7 +223,6 @@ func parseRealTimeMetrics(runId string) ([]ExecutionMetric, error) {
 	}
 	executionMetrics := make(map[string]*ExecutionMetric)
 	for _, metric := range metrics {
-		// fmt.Println(metric)
 		if metric.Type == "Point" {
 			if name, ok := requiredMetrics[metric.Metric]; ok {
 				value := float64(0)

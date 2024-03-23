@@ -60,7 +60,6 @@ let scenarios = {
 }
 
 export const options = {
-    // discardResponseBodies: true,
     thresholds: {
         checks: ['rate==1'],
     },
@@ -118,12 +117,6 @@ function recordXMsMetrics(headers, status){
       XMsTotalExecutionServiceTime.add(headers['X-Ms-Total-Execution-Service-Time'], { sessionId: getSessionID(), status: status});
     }
 }
-
-// function filterPointData(metric){
-//   let data = JSON.parse(fs.readFileSync('./test_results.json', 'utf8'));
-//   let filteredData = data.filter(item => item.type == "Point" && item.metric == metric);
-//   return filteredData;
-// }
 
 export default function () {
     let result = execute();
@@ -248,8 +241,6 @@ export function handleSummary(data) {
 
     // Converting values to string as k6 summary does not support numbers
     metrics = metrics.map(item => [item[0], String(item[1])]);
-    // httprePointMetrics = filterPointData("http_req_duration");
-    // console.log("httprePointMetrics: " + JSON.stringify(httprePointMetrics));
     return {
       stdout: textSummary(data, {enableColors: true }),
       'test_perf_report_summary.json': JSON.stringify(data),
